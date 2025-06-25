@@ -12,23 +12,27 @@ from basicsr.utils import get_root_logger, get_time_str, imwrite, tensor2img
 
 
 def main():
+    print("Inference_miavsr_reds")
     # -------------------- Configurations -------------------- #
-    device = torch.device('cuda:3')
-    save_imgs = False
+    device = torch.device('cuda:0')
+    save_imgs = True
     test_y_channel = False
     crop_border = 0
     # set suitable value to make sure cuda not out of memory
     # interval = 30
     # model
-    model_path = '/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth'
+    # model_path = '/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth'
+    model_path = '/content/drive/MyDrive/DL/MIAVSR_REDS_x4.pth'
     # test data
     test_name = f'sotareds'
 
     # lr_folder = 'datasets/REDS4/sharp_bicubic'
     # gt_folder = 'datasets/REDS4/GT'
-    lr_folder = '/data0/zhouxingyu/REDS4/sharp_bicubic'
-    gt_folder = '/data0/zhouxingyu/REDS4/gt'
-    save_folder = f'results/{test_name}'
+    # lr_folder = '/data0/zhouxingyu/REDS4/sharp_bicubic'
+    lr_folder = '/content/inference_data/lr'
+    # gt_folder = '/data0/zhouxingyu/REDS4/gt'
+    gt_folder = '/content/inference_data/gt'
+    save_folder = f'/content/inference_data/results/{test_name}'
     os.makedirs(save_folder, exist_ok=True)
 
     # logger
@@ -47,7 +51,8 @@ def main():
                  cpu_cache_length=100,
                  is_low_res_input=True,
                  use_mask=True,
-                 spynet_path='/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
+                #  spynet_path='/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
+                 spynet_path='/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
     model.load_state_dict(torch.load(model_path)['params'], strict=False)
     model.eval()
     model = model.to(device)
@@ -83,10 +88,12 @@ def main():
         # for i in range(iters):
         #     min_id = min((i + 1) * interval, length)
         #     lq = imgs_lq[:, i * interval:min_id, :, :, :]
+        print("Inference_miavsr_reds, imgs_lq size:", imgs_lq.size()) #[1, 4, 3, 180, 320]
 
         with torch.no_grad():
             outputs, _ = model(imgs_lq)
             outputs = outputs.squeeze(0)
+            print("Inference_miavsr_reds, outputs size:", outputs.size())
         # convert to numpy image
         for idx in range(outputs.shape[0]):
             img_name = imgnames[name_idx] + '.png'
@@ -99,7 +106,8 @@ def main():
             output, img_gt, crop_border=crop_border, test_y_channel=test_y_channel)
             # save
             if save_imgs:
-                imwrite(output, osp.join(save_folder, subfolder_name, f'{img_name}'))
+                s_folder = osp.join(save_folder, subfolder_name, f'{img_name}')
+                imwrite(output, s_folder)
             avg_psnr += crt_psnr
             avg_ssim += crt_ssim
             logger.info(f'{subfolder_name}--{img_name} - PSNR: {crt_psnr:.6f} dB. SSIM: {crt_ssim:.6f}')

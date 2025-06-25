@@ -1041,7 +1041,7 @@ class SwinIRFM(nn.Module):
         #print("x_size:",x_size)
         x_size = (x.shape[3], x.shape[4])  #180,320
         h, w = x_size
-        x = self.patch_embed(x)  #n,embed_dim,t,h,w
+        x = self.patch_embed(x)  #n,embed_dim,t,h,w modar CHECK
     
         if self.ape:
             x = x + self.absolute_pos_embed
@@ -1060,9 +1060,10 @@ class SwinIRFM(nn.Module):
 
     def forward(self, x, lastquary, recurrent=True, ref=None):
         n, t, c, h, w = x.size()
+        # 1 * 3 * 120 * 180 * 320
         predmask = []
 
-        if self.upsampler == 'pixelshuffle':
+        if self.upsampler == 'pixelshuffle': #modar CHECK
             # for classical SR
             if c == 3:
                 x = x.view(-1, c, h, w)

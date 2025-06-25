@@ -1,10 +1,13 @@
-numpy
+numpy<2.0.0
 opencv-python
 requests
 torch>=1.9.0
-torchvision>=0.10.0
+torchvision>=0.10.0,<=0.16.2
+torchaudio
 timm
 tqdm
 scikit-image
 scipy
 Pillow
+thinc
+spacy

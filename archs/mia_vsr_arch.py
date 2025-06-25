@@ -81,6 +81,8 @@ class MIAVSR(nn.Module):
                     num_frames=num_frames,
                     use_mask=self.ues_mask
                     )
+                
+                # feat_prop,  lastquary, predmask= self.patch_align[module_name](cond, lastquary)#
 
 
         self.upconv1 = nn.Conv2d(mid_channels, mid_channels * 4, 3, 1, 1, bias=True)
@@ -296,7 +298,7 @@ class MIAVSR(nn.Module):
         Returns:
             Tensor: Output HR sequence with shape (n, t, c, 4h, 4w).
         """
-        n, t, c, h, w = lqs.size()
+        n, t, c, h, w = lqs.size() #[1, 4, 3, 180, 320]
         pred_all = []
         # whether to cache the features in CPU
         self.cpu_cache = True if t > self.cpu_cache_length else False
@@ -319,11 +321,13 @@ class MIAVSR(nn.Module):
                 feats['spatial'].append(feat)
                 torch.cuda.empty_cache()
         else:
-            feats_ = self.conv_first(lqs.view(-1, c, h, w))
+            feats_ = self.conv_first(lqs.view(-1, c, h, w)) 
             h, w = feats_.shape[2:]
             feats_ = feats_.view(n, t, -1, h, w)
             feats['spatial'] = [feats_[:, i, :, :, :] for i in range(0, t)]
-            
+
+        # print("feats['spatial'] size:", feats['spatial'].size())    
+        
         # compute optical flow using the low-res inputs
         assert lqs_downsample.size(3) >= 64 and lqs_downsample.size(4) >= 64, (
             'The height and width of low-res inputs must be at least 64, '
