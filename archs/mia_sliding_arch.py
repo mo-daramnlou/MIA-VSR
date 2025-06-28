@@ -113,9 +113,11 @@ def window_partition(x, window_size):
     """
     B, D, H, W, C = x.shape
     x = x.view(B, D // window_size[0], window_size[0], H // window_size[1], window_size[1], W // window_size[2],
-               window_size[2], C)
+               window_size[2], C) # 1, 1, 3, 23, 8, 40, 8, 120
+    #1, 1, 23, 40, 3, 8, 8, 120
     windows = x.permute(0, 1, 3, 5, 2, 4, 6, 7).contiguous().view(-1, window_size[0] * window_size[1] * window_size[2],
                                                                   C)
+    #23*40 , 3*8*8, 120
     return windows
 
 def window_single_partition(x, window_size):
@@ -159,9 +161,11 @@ def window_reverse_single(windows, window_size, B, H, W):
     Returns:
         x: (B, D, H, W, C)
     """
+    #windows 920, 8, 8, 121
     x = windows.view(B, H // window_size[1], W // window_size[2], window_size[1],
-                     window_size[2], -1)
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
+                     window_size[2], -1) # 1, 23, 40, 8, 8, 121
+    # 1, 23, 8, 40, 8, 121
+    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1) # 1, 184, 320, 121
     return x
 
 def Pred(x):
@@ -236,55 +240,64 @@ class MaskWindowAttention(nn.Module):
         """
         Args:
             x: input features with shape of (num_windows*b, n, c)
-            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None # 920, 192, 192
         """
-        b,t, h,w,c = x.shape
+        # shift_size 3, 4, 4 / 0, 0, 0
+        b,t, h,w,c = x.shape # 1, 3, 184, 320, 120
         if any(i > 0 for i in shift_size):
             x = torch.roll(
                 x, shifts=(-shift_size[0], -shift_size[1], -shift_size[2]), dims=(1, 2, 3))
         # partition windows
         attn = window_partition(x, self.window_size)  # nw*b, window_size[0]*window_size[1]*window_size[2], c
+        # print("MaskWindowAttention1 attn ", attn.shape)
+        # print("MaskWindowAttention2 usemask ", self.use_mask)
+        # attn 23*40 , 3*8*8, 120
         B_, N, C = attn.shape
-        pred_q = attn[:, 2*(N//3):N, :].detach()
-        pred = torch.ones(B_, N//3, 1).cuda()
+        pred_q = attn[:, 2*(N//3):N, :].detach() # 920, 64, 1
+        pred = torch.ones(B_, N//3, 1).cuda() # 920, 64, 1
         maskloss = None
         self.ratio_k = 1
-        if self.use_mask and quary is not None:
-            pred = torch.abs(pred_q - quary[0])
-            if self.training:
-                pred, maskloss = self.predmask(pred)
-                self.ratio_k = maskloss
-            else:
-                pred, mask_idx = self.predmask(pred)
-                idx1, idx2 = mask_idx
-                self.ratio_k = idx1.numel()/(idx1.numel()+idx2.numel())
-        qkv = self.qkv(attn)
-        qkv = qkv.reshape(B_, N, 3, self.num_heads, c // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        # if self.use_mask and quary is not None:
+        #     pred = torch.abs(pred_q - quary[0])
+        #     if self.training:
+        #         pred, maskloss = self.predmask(pred)
+        #         self.ratio_k = maskloss
+        #     else:
+        #         pred, mask_idx = self.predmask(pred)
+        #         idx1, idx2 = mask_idx
+        #         self.ratio_k = idx1.numel()/(idx1.numel()+idx2.numel())
+        qkv = self.qkv(attn) # 23*40 , 3*8*8, 360
+        qkv = qkv.reshape(B_, N, 3, self.num_heads, c // self.num_heads).permute(2, 0, 3, 1, 4).contiguous() # 3, 23*40, 6, 3*8*8, 20
+        # print("MaskWindowAttention3 qkv ", qkv.shape)
         quary_q = qkv[0]
-        quary_q = quary_q[:,:,2*(N//3):N,:]
-        k = qkv[1]
+        quary_q = quary_q[:,:,2*(N//3):N,:] # 1, 23*40, 6, 8*8, 20
+        k = qkv[1] # 1, 23*40, 6, 3*8*8, 20
         v = qkv[2]
         quary_q = quary_q * self.scale
-        attn = quary_q @ k.transpose(-2, -1)
+        attn = quary_q @ k.transpose(-2, -1) # (1,920,6,64,192)
+        # print("MaskWindowAttention4 attn ", attn.shape)
 
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index[:N//3, :N].reshape(
             -1)].reshape(N//3, N, -1)  # Wd*Wh*Ww,Wd*Wh*Ww,nH
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wd*Wh*Ww, Wd*Wh*Ww
-        attn = attn + relative_position_bias.unsqueeze(0)  # B_, nH, N, N
+        attn = attn + relative_position_bias.unsqueeze(0)  # B_, nH, N, N # (1,920,6,64,192)
 
+        # mask # 920, 192, 192
         if mask is not None:
             nW = mask.shape[0]
-            mask = mask.unsqueeze(1).unsqueeze(0)
-            attn = attn.view(B_ // nW, nW, self.num_heads, N//3, N) + mask[:,:,:,2*(N//3):N,:]
-            attn = attn.view(-1, self.num_heads, N//3, N)        
+            mask = mask.unsqueeze(1).unsqueeze(0) # 1, 920, 1, 192, 192
+            attn = attn.view(B_ // nW, nW, self.num_heads, N//3, N) + mask[:,:,:,2*(N//3):N,:] # 1, 920, 6, 64, 192
+            attn = attn.view(-1, self.num_heads, N//3, N) # 920 ,6 , 64, 192
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
-        x = (attn @ v).transpose(1, 2).reshape(B_, N//3, c)
+        # (1,920,6,64,20)
+        # (1,6,920,64,20)
+        x = (attn @ v).transpose(1, 2).reshape(B_, N//3, c) # 920, 64, 120
         if self.training:
             x = self.proj(x)
             x_pred = self.proj_drop(x)
-            if self.use_mask and quary is not None:
-                x_pred = x_pred*pred + quary[1]*(1-pred)
+            # if self.use_mask and quary is not None:
+            #     x_pred = x_pred*pred + quary[1]*(1-pred)
             # merge windows
             x = torch.cat((x_pred,pred), -1)
             x = x.view(-1, self.window_size[1], self.window_size[2], c+1)
@@ -295,32 +308,33 @@ class MaskWindowAttention(nn.Module):
                 x = torch.roll(
                     x, shifts=(shift_size[1], shift_size[2]), dims=(1, 2))
             return x, [pred_q, x_pred.detach()], maskloss
-        elif self.use_mask and quary is not None:  
-            x = rearrange(x,'b n c-> 1 (b n) c')         
-            x1 = batch_index_select(x, idx1)
-            x1 = self.proj(x1)
-            x1 = self.proj_drop(x1)
-            quary[1] = rearrange(quary[1],'b n c-> 1 (b n) c')
-            x2 = batch_index_select(quary[1], idx2)
-            x0 = torch.zeros_like(x)
-            x_pred = batch_index_fill(x0, x1, x2, idx1, idx2)
-            x_pred = rearrange(x_pred,'1 (b n) c-> b n c',n=N//3)
-            x = torch.cat((x_pred,pred), -1)
-            x = x.view(-1, self.window_size[1], self.window_size[2], c+1)
-            x = window_reverse_single(x, self.window_size, b, h, w)  # B D' H' W' C+1
+        # elif self.use_mask and quary is not None:  
+        #     x = rearrange(x,'b n c-> 1 (b n) c')         
+        #     x1 = batch_index_select(x, idx1)
+        #     x1 = self.proj(x1)
+        #     x1 = self.proj_drop(x1)
+        #     quary[1] = rearrange(quary[1],'b n c-> 1 (b n) c')
+        #     x2 = batch_index_select(quary[1], idx2)
+        #     x0 = torch.zeros_like(x)
+        #     x_pred = batch_index_fill(x0, x1, x2, idx1, idx2)
+        #     x_pred = rearrange(x_pred,'1 (b n) c-> b n c',n=N//3)
+        #     x = torch.cat((x_pred,pred), -1)
+        #     x = x.view(-1, self.window_size[1], self.window_size[2], c+1)
+        #     x = window_reverse_single(x, self.window_size, b, h, w)  # B D' H' W' C+1
         
-            # reverse cyclic shift
-            if any(i > 0 for i in shift_size):
-                x = torch.roll(
-                    x, shifts=(shift_size[1], shift_size[2]), dims=(1, 2))
-            return x, [pred_q, x_pred]
+        #     # reverse cyclic shift
+        #     if any(i > 0 for i in shift_size):
+        #         x = torch.roll(
+        #             x, shifts=(shift_size[1], shift_size[2]), dims=(1, 2))
+        #     return x, [pred_q, x_pred]
         else:
             x = self.proj(x)
-            x_pred = self.proj_drop(x)
+            x_pred = self.proj_drop(x) # 920, 64, 120
             # merge windows
-            x = torch.cat((x_pred,pred), -1)
-            x = x.view(-1, self.window_size[1], self.window_size[2], c+1)
-            x = window_reverse_single(x, self.window_size, b, h, w)  # B D' H' W' C+1
+            # pred 920, 64, 1
+            x = torch.cat((x_pred,pred), -1) #920, 64, 121
+            x = x.view(-1, self.window_size[1], self.window_size[2], c+1) # 920, 8, 8, 121
+            x = window_reverse_single(x, self.window_size, b, h, w)  # B D' H' W' C+1 # # 1, 184, 320, 121
         
             # reverse cyclic shift
             if any(i > 0 for i in shift_size):
@@ -412,6 +426,7 @@ class MaskSwinTransformerBlock(nn.Module):
     def forward(self, x, cond, attn_mask, lastq, recurrent):
         x = torch.cat((cond, x.unsqueeze(1)), dim=1).contiguous()
         b, t, h, w, c = x.shape
+        # print("MaskSwinTransformerBlock1 x:", x.shape) # 1, 3, 180, 320, 120
 
         shortcut = x[:,-1,:,:,:].contiguous()
 
@@ -421,6 +436,7 @@ class MaskSwinTransformerBlock(nn.Module):
             last_quary = None
 
         x = self.norm1(x)
+        # print("MaskSwinTransformerBlock2 x:", x.shape) # 1, 3, 180, 320, 120
 
         # pad feature maps to multiples of window size
         pad_l = pad_t = pad_d0 = 0
@@ -429,6 +445,11 @@ class MaskSwinTransformerBlock(nn.Module):
         pad_r = (self.window_size[2] - w % self.window_size[2]) % self.window_size[2]
         x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b, pad_d0, pad_d1))
         _, Dp, Hp, Wp, _ = x.shape
+        
+        # print("MaskSwinTransformerBlock4 window_size", self.window_size) # 3, 8, 8
+        # print("MaskSwinTransformerBlock4 shift_size", self.shift_size) # 3, 4, 4 / 0, 0, 0
+        # print("MaskSwinTransformerBlock3 ", pad_l,pad_t,pad_d0,pad_d1,pad_b,pad_r) # 0 0 0 0 4 0
+        # print("MaskSwinTransformerBlock4 x:", x.shape) # 1, 3, 184, 320, 120
         
 
         # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
@@ -443,15 +464,15 @@ class MaskSwinTransformerBlock(nn.Module):
                 x = x[:, :h, :w, :].contiguous()
             mask_pred = x[:, :, :, -1].unsqueeze(-1).contiguous()
             x = shortcut + self.drop_path(x[:, :, :, :-1].contiguous())
-            if self.use_mask:
-                if recurrent:     
-                    hidden = self.drop_path(self.mlp(self.norm2(x)))*mask_pred + last_quary[2]*(1-mask_pred)
-                    self.ratio_k = maskloss
-                else:
-                    hidden = self.drop_path(self.mlp(self.norm2(x)))
-                    self.ratio_k = 1
-            else:
-                hidden = self.drop_path(self.mlp(self.norm2(x)))
+            # if self.use_mask:
+            #     if recurrent:     
+            #         hidden = self.drop_path(self.mlp(self.norm2(x)))*mask_pred + last_quary[2]*(1-mask_pred)
+            #         self.ratio_k = maskloss
+            #     else:
+            #         hidden = self.drop_path(self.mlp(self.norm2(x)))
+            #         self.ratio_k = 1
+            # else:
+            hidden = self.drop_path(self.mlp(self.norm2(x)))
             x = x + hidden
             q.append(hidden.detach())
             lastq.append(q)
@@ -459,31 +480,46 @@ class MaskSwinTransformerBlock(nn.Module):
             return x, lastq, maskloss
         else:
             if any(i > 0 for i in self.shift_size):
+                # print("attn1")
+                # print("MaskWindowAttention x ", x.shape) # 1, 3, 184, 320, 120
+                # print("MaskWindowAttention shift_size ", self.shift_size) # 3, 4, 4 / 0, 0, 0
+                # if last_quary == None:
+                #     print("MaskWindowAttention quary ", last_quary)
+                # else:
+                #     print("MaskWindowAttention quary ", last_quary.size)
+                # print("MaskWindowAttention mask ", attn_mask.shape) # 920, 192, 192
                 x, q = self.attn(x,self.shift_size, last_quary, mask=attn_mask)  # B*nW, Wd*Wh*Ww, C
             else:
+                # print("attn2")
+                # print("MaskWindowAttention x ", x.shape)
+                # print("MaskWindowAttention shift_size ", self.shift_size)
+                # if last_quary == None:
+                #     print("MaskWindowAttention quary ", last_quary)
+                # else:
+                #     print("MaskWindowAttention quary ", last_quary.size)
                 x, q = self.attn(x,self.shift_size, last_quary, mask=None)
             if pad_d1 > 0 or pad_r > 0 or pad_b > 0:
                 x = x[:, :h, :w, :].contiguous()
             mask_pred = x[:, :, :, -1].contiguous()
             x = shortcut + self.drop_path(x[:, :, :, :-1].contiguous())
-            if self.use_mask:
-                if recurrent: 
-                    xh = self.norm2(x)
-                    idx1, idx2 = Pred(mask_pred)
-                    xh = xh.view(1,h*w,c)
-                    x1 = batch_index_select(xh, idx1)
-                    x1 = self.mlp(x1)
-                    last_quary[2] = last_quary[2].view(1,h*w,c)
-                    x2 = batch_index_select(last_quary[2], idx2)
-                    x0 = torch.zeros_like(xh)
-                    hidden = batch_index_fill(x0, x1, x2, idx1, idx2)
-                    hidden = hidden.view(1,h,w,c)
-                    self.ratio_k = (mask_pred.sum()/mask_pred.numel()).float()  
-                else:
-                    hidden = self.drop_path(self.mlp(self.norm2(x)))
-                    self.ratio_k = 1
-            else:
-                hidden = self.drop_path(self.mlp(self.norm2(x)))
+            # if self.use_mask:
+            #     if recurrent: 
+            #         xh = self.norm2(x)
+            #         idx1, idx2 = Pred(mask_pred)
+            #         xh = xh.view(1,h*w,c)
+            #         x1 = batch_index_select(xh, idx1)
+            #         x1 = self.mlp(x1)
+            #         last_quary[2] = last_quary[2].view(1,h*w,c)
+            #         x2 = batch_index_select(last_quary[2], idx2)
+            #         x0 = torch.zeros_like(xh)
+            #         hidden = batch_index_fill(x0, x1, x2, idx1, idx2)
+            #         hidden = hidden.view(1,h,w,c)
+            #         self.ratio_k = (mask_pred.sum()/mask_pred.numel()).float()  
+            #     else:
+            #         hidden = self.drop_path(self.mlp(self.norm2(x)))
+            #         self.ratio_k = 1
+            # else:
+            hidden = self.drop_path(self.mlp(self.norm2(x)))
             x = x + hidden 
             q.append(hidden.detach())
             lastq.append(q)
@@ -833,7 +869,7 @@ def compute_mask(t, x_size, window_size, shift_size, device):
     Dp = int(np.ceil(t / window_size[0])) * window_size[0]
     Hp = int(np.ceil(h / window_size[1])) * window_size[1]
     Wp = int(np.ceil(w / window_size[2])) * window_size[2]
-    img_mask = torch.zeros((1, Dp, Hp, Wp, 1), device=device)  # 1 h w 1
+    img_mask = torch.zeros((1, Dp, Hp, Wp, 1), device=device)  # 1 h w 1 # 1, 3, 184, 320, 1
     
     cnt = 0
     for d in slice(-window_size[0]), slice(-window_size[0], -shift_size[0]), slice(-shift_size[0],None):
@@ -841,6 +877,8 @@ def compute_mask(t, x_size, window_size, shift_size, device):
             for w in slice(-window_size[2]), slice(-window_size[2], -shift_size[2]), slice(-shift_size[2],None):
                 img_mask[:, d, h, w, :] = cnt
                 cnt += 1
+
+    print("compute_mask cnt=",cnt)
     mask_windows = window_partition(img_mask, window_size)  # nW, ws[0]*ws[1]*ws[2], 1
     #mask_windows = mask_windows.squeeze(-1)  # nW, ws[0]*ws[1]*ws[2]
     mask_windows = mask_windows.view(-1, window_size[0] * window_size[1] * window_size[2])
@@ -1041,7 +1079,7 @@ class SwinIRFM(nn.Module):
         #print("x_size:",x_size)
         x_size = (x.shape[3], x.shape[4])  #180,320
         h, w = x_size
-        x = self.patch_embed(x)  #n,embed_dim,t,h,w modar CHECK
+        x = self.patch_embed(x)  #n,embed_dim,t,h,w its only a LayerNorm 1, 120, 3, 180, 320
     
         if self.ape:
             x = x + self.absolute_pos_embed
@@ -1049,6 +1087,8 @@ class SwinIRFM(nn.Module):
         attn_mask = compute_mask(self.num_frames,x_size,tuple(self.window_size),self.shift_size, x.device)
         cond = x[:,:,:-1,:,:].contiguous().permute(0,2,3,4,1)
         x = x[:,:,-1,:,:].contiguous().permute(0,2,3,1)
+        # print("forward_features cond=",cond.shape) # 1, 2, 180, 320, 120
+        # print("forward_features x=",x.shape) # 1, 180, 320, 120
         for layer in self.layers:    
             x, lastquary, predmask= layer(x.contiguous(), cond, attn_mask, lastquary, predmask, recurrent=recurrent)
             
@@ -1063,7 +1103,7 @@ class SwinIRFM(nn.Module):
         # 1 * 3 * 120 * 180 * 320
         predmask = []
 
-        if self.upsampler == 'pixelshuffle': #modar CHECK
+        if self.upsampler == 'pixelshuffle':
             # for classical SR
             if c == 3:
                 x = x.view(-1, c, h, w)

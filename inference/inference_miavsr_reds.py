@@ -50,7 +50,7 @@ def main():
                  num_frames=3,
                  cpu_cache_length=100,
                  is_low_res_input=True,
-                 use_mask=True,
+                 use_mask=False,
                 #  spynet_path='/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
                  spynet_path='/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
     model.load_state_dict(torch.load(model_path)['params'], strict=False)
