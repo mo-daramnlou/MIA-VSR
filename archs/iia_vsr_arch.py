@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import warnings
-
 from basicsr.archs.arch_util import flow_warp
-from basicsr.archs.spynet_arch import SpyNet
+from .custom_spynet_arch import SpyNet4Levels
 from basicsr.utils.registry import ARCH_REGISTRY
 from .iia_sliding_arch import SwinIRFM
 
@@ -41,7 +40,7 @@ class IIAVSR(nn.Module):
         self.img_size = img_size
         self.patch_size = patch_size
         # optical flow
-        self.spynet = SpyNet(spynet_path)
+        self.spynet = SpyNet4Levels(load_path=spynet_path)
 
         # feature extraction module
         if is_low_res_input:
@@ -164,9 +163,9 @@ class IIAVSR(nn.Module):
         mapping_idx += mapping_idx[::-1]
         
 
-        # if 'backward' in module_name:
-        frame_idx = frame_idx[::-1]
-        flow_idx = frame_idx
+        if 'backward' in module_name:
+            frame_idx = frame_idx[::-1]
+            flow_idx = frame_idx
 
         feat_prop = torch.zeros(n, self.embed_dim, h, w)
         for i, idx in enumerate(frame_idx):
@@ -314,10 +313,11 @@ class IIAVSR(nn.Module):
             feats_ = feats_.view(n, t, -1, h, w)
             feats['spatial'] = [feats_[:, i, :, :, :] for i in range(0, t)]
             
+        h_ds, w_ds = lqs_downsample.size(3), lqs_downsample.size(4)
         # compute optical flow using the low-res inputs
-        assert lqs_downsample.size(3) >= 64 and lqs_downsample.size(4) >= 64, (
-            'The height and width of low-res inputs must be at least 64, '
-            f'but got {h} and {w}.')
+        assert h_ds >= 32 and w_ds >= 32, (
+            'The height and width of low-res inputs for SpyNet must be at least 32, '
+            f'but got {h_ds} and {w_ds}.')
         flows_forward, flows_backward = self.compute_flow(lqs_downsample)
         shape = [n, t-1,h,w]
         # feature propgation
