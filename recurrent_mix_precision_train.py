@@ -155,6 +155,7 @@ def train_pipeline(root_path):
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     data_timer, iter_timer = AvgTimer(), AvgTimer()
+    switched_curriculum = False  # Flag for curriculum learning
     start_time = time.time()
 
     for epoch in range(start_epoch, total_epochs + 1):
@@ -168,6 +169,35 @@ def train_pipeline(root_path):
             current_iter += 1
             if current_iter > total_iters:
                 break
+
+            # curriculum learning: switch to larger patches
+            curriculum_opt = opt['train'].get('curriculum')
+            if (curriculum_opt and curriculum_opt.get('enabled') and not switched_curriculum
+                    and current_iter >= curriculum_opt['switch_iter']):
+                logger.info(f"--- Curriculum Switch at iter {current_iter} ---")
+                switched_curriculum = True
+
+                # Update opt with phase 2 settings
+                phase2_opt = curriculum_opt['phase2']
+                opt['datasets']['train']['gt_size'] = phase2_opt['gt_size']
+                opt['datasets']['train']['batch_size_per_gpu'] = phase2_opt['batch_size_per_gpu']
+                logger.info(f"Switching to new gt_size: {phase2_opt['gt_size']}, "
+                            f"batch_size: {phase2_opt['batch_size_per_gpu']}")
+
+                # Re-create train dataloader and update related variables
+                result = create_train_val_dataloader(opt, logger)
+                train_loader, train_sampler, _, total_epochs, _ = result
+                # The outer loop `for epoch in range(...)` will now use the new `total_epochs`
+
+                # Set the epoch for the new sampler to ensure proper distributed sampling
+                train_sampler.set_epoch(epoch)
+
+                # Re-create prefetcher with the new dataloader
+                if prefetch_mode is None or prefetch_mode == 'cpu':
+                    prefetcher = CPUPrefetcher(train_loader)
+                elif prefetch_mode == 'cuda':
+                    prefetcher = CUDAPrefetcher(train_loader, opt)
+
             # update learning rate
             model.update_learning_rate(current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
             # training

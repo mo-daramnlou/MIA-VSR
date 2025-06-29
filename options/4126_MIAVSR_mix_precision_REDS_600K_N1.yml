@@ -1,7 +1,7 @@
 name: 4126_MIAVSR_mix_precision_REDS_600K_N1
 model_type: RecurrentMixPrecisionRTModel
 scale: 4
-num_gpu: 8  # official: 8 GPUs
+num_gpu: 1  # official: 8 GPUs
 manual_seed: 0
 find_unused_parameters: false
 use_static_graph: true
@@ -10,16 +10,16 @@ datasets:
   train:
     name: REDS
     type: REDSRecurrentDataset
-    dataroot_gt: /data0/zhouxingyu/REDS/train/train_sharp
-    dataroot_lq: /data0/zhouxingyu/REDS/train/train_sharp_bicubic/X4
-    meta_info_file: /data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/data/meta_info_REDS_GT.txt
+    dataroot_gt: /content/train_sharp/train/train_sharp
+    dataroot_lq: /content/train_sharp_bi/train/train_sharp_bicubic/X4
+    meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT.txt
     val_partition: REDS4  # set to 'official' when use the official validation partition
     test_mode: False
     io_backend:
       type: disk
 
-    num_frame: 16
-    gt_size: 256
+    num_frame: 4
+    gt_size: 128
     interval_list: [1]
     random_reverse: false
     use_hflip: true
@@ -28,7 +28,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 6
-    batch_size_per_gpu: 3
+    batch_size_per_gpu: 4
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 
@@ -47,18 +47,18 @@ datasets:
 # network structures
 network_g:
   type: MIAVSR
-  mid_channels: 64
-  embed_dim: 120
-  depths: [6,6,6,6]
-  num_heads: [6,6,6,6]
+  mid_channels: 16
+  embed_dim: 24
+  depths: [2,2]
+  num_heads: [2,2]
   window_size: [3, 8, 8]
   num_frames: 3
-  img_size : 64
+  img_size : 32
   patch_size : 1
   cpu_cache_length: 100
   is_low_res_input: True
-  use_mask: True #False, may be you should pretrain this model with no mask processing module
-  spynet_path: experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
+  use_mask: False #False, may be you should pretrain this model with no mask processing module
+  spynet_path: /content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
 
 # path
 path:
@@ -83,6 +83,14 @@ train:
   warmup_iter: -1  # no warm up
   fix_flow: 5000 #-1 no fix flow
   flow_lr_mul: 0.125
+
+  # curriculum learning settings
+  curriculum:
+    enabled: true
+    switch_iter: 300000  # Iteration to switch to the next phase
+    phase2:
+      gt_size: 256  # Corresponds to 64x64 LQ patches for 4x SR
+      batch_size_per_gpu: 2  # Reduce batch size for larger patches to fit in memory
 
   # losses
   pixel_opt:
@@ -109,7 +117,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 100
+  print_freq: 2
   save_checkpoint_freq: !!float 5e3
   use_tb_logger: true
   wandb:
@@ -120,5 +128,3 @@ logger:
 dist_params:
   backend: nccl
   port: 29500
-
-
