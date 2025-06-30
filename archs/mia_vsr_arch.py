@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import warnings
 from basicsr.archs.arch_util import flow_warp
 from basicsr.archs.basicvsr_arch import ConvResidualBlocks
+# from basicsr.archs.spynet_arch import SpyNet
 from .custom_spynet_arch import SpyNet4Levels
 from basicsr.utils.registry import ARCH_REGISTRY
 from .mia_sliding_arch import SwinIRFM
@@ -43,6 +44,7 @@ class MIAVSR(nn.Module):
         self.patch_size = patch_size
         self.ues_mask = use_mask
         # optical flow
+        # self.spynet = SpyNet(spynet_path)
         self.spynet = SpyNet4Levels(load_path=spynet_path)
 
         # feature extraction module
@@ -328,10 +330,13 @@ class MIAVSR(nn.Module):
         # print("feats['spatial'] size:", feats['spatial'].size())    
         
         h_ds, w_ds = lqs_downsample.size(3), lqs_downsample.size(4)
-        # compute optical flow using the low-res inputs
+        # # compute optical flow using the low-res inputs
         assert h_ds >= 32 and w_ds >= 32, (
             'The height and width of low-res inputs for SpyNet must be at least 32, '
             f'but got {h_ds} and {w_ds}.')
+        # assert lqs_downsample.size(3) >= 64 and lqs_downsample.size(4) >= 64, (
+        #     'The height and width of low-res inputs must be at least 64, '
+        #     f'but got {h} and {w}.')
         flows_forward, flows_backward = self.compute_flow(lqs_downsample)
         shape = [n, t-1,h,w]
         # feature propgation

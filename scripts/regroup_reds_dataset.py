@@ -24,11 +24,11 @@ def regroup_reds_dataset(train_path, val_path):
 
 if __name__ == '__main__':
     # train_sharp
-    train_path = 'datasets/REDS/train_sharp'
-    val_path = 'datasets/REDS/val_sharp'
+    train_path = '/content/train_sharp/train/train_sharp'
+    val_path = '/content/val_sharp/val/val_sharp'
     regroup_reds_dataset(train_path, val_path)
 
     # train_sharp_bicubic
-    train_path = 'datasets/REDS/train_sharp_bicubic/X4'
-    val_path = 'datasets/REDS/val_sharp_bicubic/X4'
+    train_path = '/content/train_sharp_bi/train/train_sharp_bicubic/X4'
+    val_path = '/content/val_sharp_bi/val/val_sharp_bicubic/X4'
     regroup_reds_dataset(train_path, val_path)

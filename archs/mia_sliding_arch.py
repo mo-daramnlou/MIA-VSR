@@ -901,7 +901,7 @@ def compute_single_mask(t, x_size, window_size, shift_size, device):
     mask_windows = mask_windows.view(-1, window_size[1] * window_size[2])
     attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
     attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
-    attn_mask = attn_mask.repeat(1,3)
+    attn_mask = attn_mask.repeat(1,3) #modar
     return attn_mask
 class SwinIRFM(nn.Module):
     r""" SwinIRFM

@@ -833,7 +833,7 @@ class SwinIRFM(nn.Module):
         return x
 
     def forward(self, x, ref=None):
-        # n, t, c, h, w = x.size()
+        n, t, c, h, w = x.size()
         if self.upsampler == 'pixelshuffle':
             #for classical SR
             if c == 3:

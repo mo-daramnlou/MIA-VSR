@@ -1,6 +1,7 @@
 import datetime
 import logging
 import math
+import torch.profiler
 import time
 import torch
 from os import path as osp
@@ -158,12 +159,29 @@ def train_pipeline(root_path):
     switched_curriculum = False  # Flag for curriculum learning
     start_time = time.time()
 
+    # --- Profiler Setup ---
+    # Set to True to run the profiler for a few steps to analyze performance
+    enable_profiler = False 
+    if enable_profiler:
+        # Profile the first few steps of each curriculum phase
+        prof = torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=15, warmup=1, active=4, repeat=2),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(osp.join(opt['root_path'], 'tb_logger', opt['name'], 'profiler')),
+            record_shapes=True,
+            with_stack=True
+        )
+
+    if enable_profiler:
+        logger.info("Starting profiler...")
+        prof.start()
+
     for epoch in range(start_epoch, total_epochs + 1):
         train_sampler.set_epoch(epoch)
         prefetcher.reset()
         train_data = prefetcher.next()
 
         while train_data is not None:
+            # Note: profiler is stepped at the end of the iteration
             data_timer.record()
 
             current_iter += 1
@@ -246,9 +264,17 @@ def train_pipeline(root_path):
             data_timer.start()
             iter_timer.start()
             train_data = prefetcher.next()
+
+            # Step the profiler at the end of each iteration
+            if enable_profiler:
+                prof.step()
+
         # end of iter
 
     # end of epoch
+    if enable_profiler:
+        logger.info("Stopping profiler...")
+        prof.stop()
 
     consumed_time = str(datetime.timedelta(seconds=int(time.time() - start_time)))
     logger.info(f'End of training. Time consumed: {consumed_time}')
