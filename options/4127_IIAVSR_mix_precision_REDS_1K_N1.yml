@@ -28,10 +28,10 @@ datasets:
 
     # data loader
     use_shuffle: true
-    num_worker_per_gpu: 2
-    batch_size_per_gpu: 2
+    num_worker_per_gpu: 3
+    batch_size_per_gpu: 32
     dataset_enlarge_ratio: 1
-    prefetch_mode: cuda
+    prefetch_mode: ~
     pin_memory: true
 
   val:
@@ -76,11 +76,11 @@ train:
 
   scheduler:
     type: CosineAnnealingRestartLR
-    periods: [600000]
+    periods: [1000]
     restart_weights: [1]
     eta_min: !!float 1e-7
 
-  total_iter: 600000
+  total_iter: 1000
   warmup_iter: -1  # no warm up
   fix_flow: 5000 #-1 no fix flow
   flow_lr_mul: 0.125
@@ -101,7 +101,7 @@ train:
 
 # validation settings
 val:
-  val_freq: 200
+  val_freq: 120
   save_img: false
 
   metrics:
@@ -116,7 +116,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 2
+  print_freq: 10
   save_checkpoint_freq: !!float 5e3
   use_tb_logger: true
   wandb:

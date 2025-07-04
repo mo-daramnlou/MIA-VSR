@@ -370,7 +370,7 @@ class MIAVSR(nn.Module):
         for pipl_name,modules in self.patch_align.items():
             modules_flop = modules.flops()
             flops += modules_flop
-            print(pipl_name, modules_flop / 1e9)
+            print("module_name:", pipl_name, "flops: ",modules_flop / 1e9)
             print("\n")
 
         flops += h * w * self.embed_dim * self.mid_channels * 9
@@ -440,19 +440,20 @@ if __name__ == '__main__':
     model = MIAVSR(
         mid_channels = 64,
         embed_dim=120,
-        depths=[6, 6, 6],
-        num_heads=[6, 6, 6],
+        depths=[6,6,6,6],
+        num_heads=[6,6,6,6],
         window_size=window_size,
         num_frames = 3,
         img_size = img_size,
         patch_size = 1,
         cpu_cache_length = 100,
         is_low_res_input = True,
-        spynet_path = 'experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth'
+        use_mask=False,
+        spynet_path = '/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth'
     )
 
     print(model)
-    print("flops",model.flops() / 1e9 + 'G')
+    print("flops",model.flops() / 1e9)
 
     x = torch.randn((1, 5, 3, img_size, img_size))
     x = model(x)

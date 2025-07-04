@@ -537,7 +537,7 @@ class MaskSwinTransformerBlock(nn.Module):
         # W-MSA/SW-MSA
         nw = h * w / self.window_size[1] / self.window_size[2]
         flops += nw * self.attn.flops(self.window_size[1] * self.window_size[2] * self.num_frames)
-        print(flops)
+        # print(flops)
         if self.use_mask:
             # mlp
             flops += 2 * h * w * self.dim * self.dim * self.mlp_ratio*self.ratio_k
@@ -548,7 +548,7 @@ class MaskSwinTransformerBlock(nn.Module):
             flops += 2 * h * w * self.dim * self.dim * self.mlp_ratio 
             # norm2
             flops += self.dim * h * w
-        print(flops)
+        # print(flops)
         return flops
 
 
@@ -751,7 +751,7 @@ class RSTB(nn.Module):
         flops += self.residual_group.flops()
         h, w = self.input_resolution
         flops += h * w * self.num_frames * self.dim * self.dim * 9
-        flops += self.patch_embed.flops()
+        # flops += self.patch_embed.flops()
         #flops += self.patch_unembed.flops()
 
         return flops
@@ -1133,7 +1133,7 @@ class SwinIRFM(nn.Module):
         for i,layer in enumerate(self.layers):
             layer_flop=layer.flops()
             flops += layer_flop
-            print(i,layer_flop / 1e9)
+            # print(i,layer_flop / 1e9)
 
 
         flops += h * w * self.num_frames * self.embed_dim

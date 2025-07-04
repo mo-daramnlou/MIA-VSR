@@ -63,6 +63,9 @@ def main():
     subfolder_l = sorted(glob.glob(osp.join(lr_folder, '*')))
     subfolder_gt_l = sorted(glob.glob(osp.join(gt_folder, '*')))
 
+    # print(model)
+    print("Total Flops",model.flops() / 1e9)
+
     # for each subfolder
     subfolder_names = []
     for subfolder, subfolder_gt in zip(subfolder_l, subfolder_gt_l):
