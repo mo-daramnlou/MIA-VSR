@@ -88,6 +88,11 @@ class SRModel1(BaseModel):
         self.lq = data['lq'].to(self.device)
         if 'gt' in data:
             self.gt = data['gt'].to(self.device)
+        if 'feature_maps' in data:
+            self.anchor_gt_b1 = data['feature_maps']['backward_1'].to(self.device)
+            self.anchor_gt_f1 = data['feature_maps']['forward_1'].to(self.device)
+            self.anchor_gt_b2 = data['feature_maps']['backward_2'].to(self.device)
+            self.anchor_gt_f2 = data['feature_maps']['forward_2'].to(self.device)
 
     def optimize_parameters(self):
         self.optimizer_g.zero_grad()

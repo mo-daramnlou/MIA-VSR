@@ -5,6 +5,7 @@ import os
 import os.path as osp
 import torch
 import torch.nn.functional as F
+import h5py
 from archs.mia_vsr_arch import MIAVSR
 from basicsr.data.data_util import read_img_seq
 from basicsr.metrics import psnr_ssim
@@ -22,17 +23,21 @@ def main():
     # interval = 30
     # model
     # model_path = '/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth'
-    model_path = '/content/drive/MyDrive/DL/MIAVSR_REDS_x4.pth'
+    # model_path = '/content/drive/MyDrive/DL/MIAVSR_REDS_x4.pth'
+    model_path = '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/trained_models/MIAVSR_REDS_x4.pth'
     # test data
     test_name = f'sotareds'
 
     # lr_folder = 'datasets/REDS4/sharp_bicubic'
     # gt_folder = 'datasets/REDS4/GT'
     # lr_folder = '/data0/zhouxingyu/REDS4/sharp_bicubic'
-    lr_folder = '/content/inference_data/lr'
+    # lr_folder = '/content/inference_data/lr'
+    lr_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/lr'
     # gt_folder = '/data0/zhouxingyu/REDS4/gt'
-    gt_folder = '/content/inference_data/gt'
-    save_folder = f'/content/inference_data/results/{test_name}'
+    # gt_folder = '/content/inference_data/gt'
+    # save_folder = f'/content/inference_data/results/{test_name}'
+    gt_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/gt'
+    save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/results/{test_name}'
     os.makedirs(save_folder, exist_ok=True)
 
     # logger
@@ -52,7 +57,8 @@ def main():
                  is_low_res_input=True,
                  use_mask=False,
                 #  spynet_path='/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
-                 spynet_path='/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
+                #  spynet_path='/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
+                 spynet_path='/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
     model.load_state_dict(torch.load(model_path)['params'], strict=False)
     model.eval()
     model = model.to(device)
@@ -94,7 +100,7 @@ def main():
         print("Inference_miavsr_reds, imgs_lq size:", imgs_lq.size()) #[1, 4, 3, 180, 320]
 
         with torch.no_grad():
-            outputs, _ = model(imgs_lq)
+            outputs, _, anchor_feats = model(imgs_lq)
             outputs = outputs.squeeze(0)
             print("Inference_miavsr_reds, outputs size:", outputs.size())
         # convert to numpy image
@@ -111,6 +117,23 @@ def main():
             if save_imgs:
                 s_folder = osp.join(save_folder, subfolder_name, f'{img_name}')
                 imwrite(output, s_folder)
+                # for key in anchor_feats:
+                #     anchor_feat = anchor_feats[key].squeeze()
+                #     print("anchor_feat: ",anchor_feat)
+                #     anchor_feat = anchor_feat[idx].squeeze()
+                    # feat = tensor2img(normalize_tensor(anchor_feat), rgb2bgr=True, min_max=(0,1))
+                    # # feat = anchor_feat[idx].squeeze()
+                    # print("feat: ",feat)
+                    # s_folder = osp.join(save_folder, subfolder_name, f'{imgnames[name_idx]}_{key}' + '.png')
+                    # imwrite(feat, s_folder)
+
+            save_feature_maps_hdf5(
+                hdf5_path='/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5',
+                clip_name=subfolder_name,
+                frame_idx=idx, 
+                feature_maps=anchor_feats
+            )
+                    
             avg_psnr += crt_psnr
             avg_ssim += crt_ssim
             logger.info(f'{subfolder_name}--{img_name} - PSNR: {crt_psnr:.6f} dB. SSIM: {crt_ssim:.6f}')
@@ -133,6 +156,30 @@ def main():
     # logger.info(f'Average FLOPS: {sum(FLOPs) / len(FLOPs):.6f}  '
     # f'for {len(subfolder_names)} clips. ')
 
+def normalize_tensor(tensor):
+    min_val = tensor.min()
+    max_val = tensor.max()
+    normalized_tensor = (tensor - min_val) / (max_val - min_val)
+    return normalized_tensor
+
+def save_feature_maps_hdf5(hdf5_path, clip_name, frame_idx, feature_maps):
+    """
+    feature_maps: dict with keys ['backward_1', 'forward_1', 'backward_2', 'forward_2']
+                  and values as numpy arrays of shape (180, 320)    16, 4, 180, 320
+    """
+    # save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_infer/'
+    with h5py.File(hdf5_path, 'a') as f:
+        grp = f.require_group(f"{clip_name}/{frame_idx:08d}")
+        for module_name, fmap in feature_maps.items():
+            if module_name in grp:
+                del grp[module_name]
+            f_map=fmap[frame_idx].squeeze()
+            grp.create_dataset(module_name, data=f_map.cpu(), compression="gzip")
+            # feat = tensor2img(normalize_tensor(f_map), rgb2bgr=True, min_max=(0,1))
+            # feat = anchor_feat[idx].squeeze()
+            # print("feat: ",feat)
+            # s_folder = osp.join(save_folder, f"{clip_name}_{frame_idx:08d}_{module_name}" + '.png')
+            # imwrite(feat, s_folder)
 
 if __name__ == '__main__':
 

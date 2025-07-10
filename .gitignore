@@ -360,3 +360,11 @@ MIAVSR.egg-info/PKG-INFO
 MIAVSR.egg-info/requires.txt
 MIAVSR.egg-info/SOURCES.txt
 MIAVSR.egg-info/top_level.txt
+archs/__pycache__/
+data/__pycache__/
+experiments/
+losses
+models/__pycache__/
+tb_logger/
+trained_models/
+data/anchor_maps_teacher.h5

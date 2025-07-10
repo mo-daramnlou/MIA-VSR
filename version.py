@@ -1,5 +1,5 @@
 # GENERATED VERSION FILE
-# TIME: Sat Jul  5 12:38:57 2025
+# TIME: Wed Jul  9 11:20:25 2025
 __version__ = '0.1.0'
-__gitsha__ = 'fb77d89'
+__gitsha__ = '65f7277'
 version_info = (0, 1, 0)

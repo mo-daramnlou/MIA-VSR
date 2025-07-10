@@ -1,0 +1,24 @@
+name: vsrenv
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10.18  # Choose your preferred Python version
+  - numpy<2.0.0
+  - requests
+  - pytorch>=1.9.0
+  - torchvision>=0.10.0,<=0.16.2
+  - torchaudio
+  - timm
+  - tqdm
+  - scikit-image
+  - scipy
+  - pillow
+  - thinc
+  - spacy
+  - pytorch-cuda<=12.4 # IMPORTANT: Adjust this to your compatible CUDA version!
+  - pip
+  - pip:
+    - opencv-python

@@ -9,10 +9,13 @@ use_static_graph: true
 datasets:
   train:
     name: REDS
-    type: REDSRecurrentDataset
-    dataroot_gt: /content/train_sharp/train/train_sharp
-    dataroot_lq: /content/train_sharp_bi/train/train_sharp_bicubic/X4
-    meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT_30.txt
+    type: REDSRecurrentDistillationDataset
+    dataroot_gt: /home/mohammad/Documents/uni/deep learning/FinalProject/train_sharp/train/train_sharp
+    dataroot_lq: /home/mohammad/Documents/uni/deep learning/FinalProject/train_sharp_bicubic/train/train_sharp_bicubic/X4
+    meta_info_file: /home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/meta_info_REDS_GT_30.txt
+    # dataroot_gt: /content/train_sharp/train/train_sharp
+    # dataroot_lq: /content/train_sharp_bi/train/train_sharp_bicubic/X4
+    # meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT_30.txt
     val_partition: REDS4  # set to 'official' when use the official validation partition
     # val_partition: 'official'  # set to 'official' when use the official validation partition
     test_mode: False
@@ -33,6 +36,9 @@ datasets:
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
     pin_memory: true
+
+    # feature_hdf5_path: '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5'
+    feature_hdf5_path: '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5'
 
   val:
     name: REDS4
@@ -59,7 +65,8 @@ network_g:
   patch_size : 1
   cpu_cache_length: 100
   is_low_res_input: True
-  spynet_path: /content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
+  # spynet_path: /content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
+  spynet_path: /home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
 
 # path
 path:

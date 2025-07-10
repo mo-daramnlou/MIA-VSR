@@ -338,7 +338,13 @@ class IIAVSR(nn.Module):
                 if self.cpu_cache:
                     del flows
                     torch.cuda.empty_cache()
-        return self.upsample(lqs, feats), mask
+    
+        anchor_modules = ['backward_1', 'forward_1', 'backward_2', 'forward_2']
+        anchor_feats = {key: torch.stack(feats[key], dim=0) for key in anchor_modules if key in feats}
+        for key in anchor_feats:
+            anchor_feats[key] = torch.sum(anchor_feats[key]**2, axis=2, keepdims=True)
+
+        return self.upsample(lqs, feats), mask, anchor_feats
 
 
 

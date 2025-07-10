@@ -361,7 +361,13 @@ class MIAVSR(nn.Module):
                     torch.cuda.empty_cache()
         if not self.ues_mask:
             pred_all = None
-        return self.upsample(lqs, feats), pred_all
+
+        anchor_modules = ['backward_1', 'forward_1', 'backward_2', 'forward_2']
+        anchor_feats = {key: torch.stack(feats[key], dim=0) for key in anchor_modules if key in feats}
+        for key in anchor_feats:
+            anchor_feats[key] = torch.sum(anchor_feats[key]**2, axis=2, keepdims=True)
+
+        return self.upsample(lqs, feats), pred_all, anchor_feats
 
     def flops(self):
         flops = 0
