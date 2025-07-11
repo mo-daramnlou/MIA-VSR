@@ -96,15 +96,14 @@ class REDSRecurrentDistillationDataset(data.Dataset):
         
         self.feature_hdf5_path = opt.get('feature_hdf5_path', None)
         self.feature_hdf5 = None
-        
-
+        self.kd_enabled = opt['kd_enabled']
 
     def __getitem__(self, index):
         # print("getitem REDSRecurrentDistillationDataset")
         if self.file_client is None:
             self.file_client = FileClient(self.io_backend_opt.pop('type'), **self.io_backend_opt)
 
-        if self.feature_hdf5_path is not None:
+        if self.kd_enabled and self.feature_hdf5_path is not None:
             self.feature_hdf5 = h5py.File(self.feature_hdf5_path, 'r')
 
         scale = self.opt['scale']
@@ -150,7 +149,7 @@ class REDSRecurrentDistillationDataset(data.Dataset):
 
         
         feature_maps_batch = {'backward_1': [], 'forward_1': [], 'backward_2': [], 'forward_2': []} # 4modules; each num_frame, 180, 320
-        if self.feature_hdf5 is not None:
+        if self.kd_enabled and self.feature_hdf5 is not None:
             # save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_train/'
             for neighbor in neighbor_list:
                 group = self.feature_hdf5[f"{clip_name}/{neighbor:08d}"]
@@ -167,10 +166,12 @@ class REDSRecurrentDistillationDataset(data.Dataset):
                 feature_maps_batch[module] = torch.stack(feature_maps_batch[module], dim=0)
 
         # randomly crop
-        img_lqs.extend(feature_maps_batch['backward_1'].unsqueeze(3).numpy())
-        img_lqs.extend(feature_maps_batch['forward_1'].unsqueeze(3).numpy())
-        img_lqs.extend(feature_maps_batch['backward_2'].unsqueeze(3).numpy())
-        img_lqs.extend(feature_maps_batch['forward_2'].unsqueeze(3).numpy())
+        if self.kd_enabled:
+            img_lqs.extend(feature_maps_batch['backward_1'].unsqueeze(3).numpy())
+            img_lqs.extend(feature_maps_batch['forward_1'].unsqueeze(3).numpy())
+            img_lqs.extend(feature_maps_batch['backward_2'].unsqueeze(3).numpy())
+            img_lqs.extend(feature_maps_batch['forward_2'].unsqueeze(3).numpy())
+
         img_gts, img_lqs = paired_random_crop(img_gts, img_lqs, gt_size, scale, img_gt_path)
 
         # augmentation - flip, rotate
@@ -178,12 +179,17 @@ class REDSRecurrentDistillationDataset(data.Dataset):
         img_results = augment(img_lqs, self.opt['use_hflip'], self.opt['use_rot'])
 
         img_results = img2tensor(img_results)
-        img_lqs = torch.stack(img_results[:len(img_results) // 6], dim=0)
-        feature_maps_batch['backward_1'] = torch.stack(img_results[1*(len(img_results) // 6): 2*(len(img_results) // 6)], dim=0)
-        feature_maps_batch['forward_1'] = torch.stack(img_results[2*(len(img_results) // 6): 3*(len(img_results) // 6)], dim=0)
-        feature_maps_batch['backward_2'] = torch.stack(img_results[3*(len(img_results) // 6): 4*(len(img_results) // 6)], dim=0)
-        feature_maps_batch['forward_2'] = torch.stack(img_results[4*(len(img_results) // 6): 5*(len(img_results) // 6)], dim=0)
-        img_gts = torch.stack(img_results[5*(len(img_results) // 6):], dim=0)
+        if self.kd_enabled:
+            img_lqs = torch.stack(img_results[:len(img_results) // 6], dim=0)
+            feature_maps_batch['backward_1'] = torch.stack(img_results[1*(len(img_results) // 6): 2*(len(img_results) // 6)], dim=0)
+            feature_maps_batch['forward_1'] = torch.stack(img_results[2*(len(img_results) // 6): 3*(len(img_results) // 6)], dim=0)
+            feature_maps_batch['backward_2'] = torch.stack(img_results[3*(len(img_results) // 6): 4*(len(img_results) // 6)], dim=0)
+            feature_maps_batch['forward_2'] = torch.stack(img_results[4*(len(img_results) // 6): 5*(len(img_results) // 6)], dim=0)
+            img_gts = torch.stack(img_results[5*(len(img_results) // 6):], dim=0)
+        else:
+            img_lqs = torch.stack(img_results[:len(img_results) // 2], dim=0)
+            img_gts = torch.stack(img_results[len(img_results) // 2:], dim=0)
+        
 
         # save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_train2/'
         # for i in range(20,24):
@@ -198,12 +204,16 @@ class REDSRecurrentDistillationDataset(data.Dataset):
         # img_lqs: (t, c, h, w)
         # img_gts: (t, c, h, w)
         # key: str
-        return {
+
+        data = {
             'lq': img_lqs,
             'gt': img_gts,
-            'key': key,
-            'feature_maps': feature_maps_batch if self.feature_hdf5 is not None else None
+            'key': key
         }
+        if self.kd_enabled:
+            data['feature_maps'] = feature_maps_batch if self.feature_hdf5 is not None else None
+
+        return data
 
     def __len__(self):
         return len(self.keys)

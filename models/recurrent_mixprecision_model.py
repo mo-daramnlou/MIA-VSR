@@ -38,7 +38,11 @@ class RecurrentMixPrecisionRTModel(VideoRecurrentModel1):
         if self.is_train:
             self.init_training_settings()
             self.fix_flow_iter = opt['train'].get('fix_flow')
+            self.kd_enabled = opt['train']['knowledge_distillation'].get('enabled')
+            self.kd_start_iter= opt['train']['knowledge_distillation'].get('start_iter')
         self.cri_spa = SparsityLoss(opt['train'].get('parsity_target'))
+        self.embed_dim = opt['network_g'].get('embed_dim')
+        self.ff = True
 
 
     # add use_static_graph
@@ -123,13 +127,14 @@ class RecurrentMixPrecisionRTModel(VideoRecurrentModel1):
             if module in anchor_feats and module in anchor_gt:
                 student_feats = anchor_feats[module].permute(1,0,2,3,4).squeeze(0)
                 teacher_feats = anchor_gt[module].squeeze(0)
-                print("types: ",type(student_feats), type(teacher_feats))
-                print("shapes: ",student_feats.shape, teacher_feats.shape)
+                teacher_feats = teacher_feats * (self.embed_dim/120) # 120: MIA_FULL embed dim
+                # print("types: ",type(student_feats), type(teacher_feats))
+                # print("shapes: ",student_feats.shape, teacher_feats.shape)
                 kd_loss = kd_loss + self.cri_pix(student_feats, teacher_feats)
                 # Assume both are lists of tensors (one per frame)
                 # for s_feat, t_feat in zip(student_feats, teacher_feats):
                 #     kd_loss = kd_loss + torch.nn.functional.mse_loss(s_feat, t_feat)
-        return kd_weight * kd_loss
+        return 0.0001 * 3 * kd_weight * kd_loss
     
 
 
@@ -165,24 +170,26 @@ class RecurrentMixPrecisionRTModel(VideoRecurrentModel1):
         with autocast():
             self.output, masks, anchor_feats = self.net_g(self.lq)
 
-            # save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_train3/'
-            # o = {
-            #     'lq': self.lq,
-            #     'b1': self.anchor_gt_b1,
-            #     'f1': self.anchor_gt_f1,
-            #     'b2': self.anchor_gt_b2,
-            #     'f2': self.anchor_gt_f2,
-            #     'gt': self.gt,
-            #     'out': self.output
-            # }
-            # for i in range(0,8):
-            #     for key in o:
-            #         o_current = o[key].reshape(-1, *o[key].shape[2:])
-            #         print(f'o_current {key}', o_current)
-            #         print(f'{i}_{key}', o_current[i].shape)
-            #         feat = tensor2img(self.normalize_tensor(o_current[i].squeeze()), rgb2bgr=True, min_max=(0,1))
-            #         s_folder = osp.join(save_folder, f'{i}_{key}' + '.png')
-            #         imwrite(feat, s_folder)
+            # if self.ff:
+            #     self.ff = False
+            #     save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_train3/'
+            #     o = {
+            #         'lq': self.lq,
+            #         'b1': self.anchor_gt_b1,
+            #         'f1': self.anchor_gt_f1,
+            #         'b2': self.anchor_gt_b2,
+            #         'f2': self.anchor_gt_f2,
+            #         'gt': self.gt,
+            #         'out': self.output
+            #     }
+            #     for i in range(0,8):
+            #         for key in o:
+            #             o_current = o[key].reshape(-1, *o[key].shape[2:])
+            #             print(f'o_current {key}', o_current)
+            #             print(f'{i}_{key}', o_current[i].shape)
+            #             feat = tensor2img(self.normalize_tensor(o_current[i].squeeze()), rgb2bgr=True, min_max=(0,1))
+            #             s_folder = osp.join(save_folder, f'{i}_{key}' + '.png')
+            #             imwrite(feat, s_folder)
 
             l_total = 0
             loss_dict = OrderedDict()
@@ -207,7 +214,7 @@ class RecurrentMixPrecisionRTModel(VideoRecurrentModel1):
                     loss_dict['l_style'] = l_style
 
             # Multi-anchor knowledge distillation loss
-            if self.anchor_gt_b1 is not None and self.anchor_gt_f1 is not None and self.anchor_gt_b2 is not None and self.anchor_gt_f2 is not None:
+            if self.kd_enabled and current_iter > self.kd_start_iter and self.anchor_gt_b1 is not None and self.anchor_gt_f1 is not None and self.anchor_gt_b2 is not None and self.anchor_gt_f2 is not None:
                 anchor_gt = {'backward_1': self.anchor_gt_b1, 'forward_1': self.anchor_gt_f1, 'backward_2': self.anchor_gt_b2, 'forward_2': self.anchor_gt_f2}
                 kd_weight = getattr(self, 'kd_weight', 1.0)
                 l_kd = self.compute_multi_anchor_kd_loss(anchor_feats, anchor_gt, kd_weight)

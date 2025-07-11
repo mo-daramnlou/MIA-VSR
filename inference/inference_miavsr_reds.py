@@ -17,6 +17,7 @@ def main():
     # -------------------- Configurations -------------------- #
     device = torch.device('cuda:0')
     save_imgs = True
+    measure_inference_time = False
     test_y_channel = False
     crop_border = 0
     # set suitable value to make sure cuda not out of memory
@@ -24,7 +25,8 @@ def main():
     # model
     # model_path = '/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth'
     # model_path = '/content/drive/MyDrive/DL/MIAVSR_REDS_x4.pth'
-    model_path = '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/trained_models/MIAVSR_REDS_x4.pth'
+    # model_path = '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/trained_models/MIAVSR_REDS_x4.pth'
+    model_path = '/home/mohammad/Documents/uni/deep learning/FinalProject/Logs/experiments/base_model/models/net_g_latest.pth'
     # test data
     test_name = f'sotareds'
 
@@ -63,9 +65,24 @@ def main():
     model.eval()
     model = model.to(device)
 
+    if measure_inference_time:
+        lr_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/Logs/Inference Time/data/lr'
+        gt_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/Logs/Inference Time/data/gt'
+        # -------------------- Warm-up for stable measurements -------------------- #
+        logger.info('Warming up GPU for 10 iterations...')
+        # Create a dummy input tensor. The size should be representative of your actual input.
+        # Based on your print log: [1, 4, 3, 180, 320]
+        # We use a slightly smaller frame count for a quick warm-up.
+        dummy_input = torch.randn(1, 4, 3, 180, 320, device=device)
+        for _ in range(10):
+            with torch.no_grad():
+                _ = model(dummy_input)
+        torch.cuda.synchronize()  # Wait for warm-up to finish
+
     avg_psnr_l = []
     avg_ssim_l = []
-    FLOPs = []
+    inference_times = []
+    num_frames_list = []
     subfolder_l = sorted(glob.glob(osp.join(lr_folder, '*')))
     subfolder_gt_l = sorted(glob.glob(osp.join(gt_folder, '*')))
 
@@ -83,6 +100,7 @@ def main():
 
         # calculate the iter numbers
         length = len(imgs_lq)
+        num_frames_list.append(length)
         # iters = length // interval
 
         # cluster the excluded file into another group
@@ -99,10 +117,28 @@ def main():
         #     lq = imgs_lq[:, i * interval:min_id, :, :, :]
         print("Inference_miavsr_reds, imgs_lq size:", imgs_lq.size()) #[1, 4, 3, 180, 320]
 
+        if measure_inference_time:
+            # --- Timing using torch.cuda.Event ---
+            torch.cuda.synchronize(device)  # Wait for all previous GPU work to finish
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+
         with torch.no_grad():
+            if measure_inference_time:
+                start_event.record()
+
             outputs, _, anchor_feats = model(imgs_lq)
+
+            if  measure_inference_time:
+                end_event.record()
+                torch.cuda.synchronize(device)  # Wait for the model call to complete
+                elapsed_time_ms = start_event.elapsed_time(end_event)
+                inference_times.append(elapsed_time_ms)
+
             outputs = outputs.squeeze(0)
             print("Inference_miavsr_reds, outputs size:", outputs.size())
+
+            
         # convert to numpy image
         for idx in range(outputs.shape[0]):
             img_name = imgnames[name_idx] + '.png'
@@ -149,12 +185,33 @@ def main():
 
     for folder_idx, subfolder_name in enumerate(subfolder_names):
         logger.info(f'Folder {subfolder_name} - Average PSNR: {avg_psnr_l[folder_idx]:.6f} dB. Average SSIM: {avg_ssim_l[folder_idx]:.6f}. ')#Average FLOPS: {FLOPs[folder_idx]:.6f}.')
+        if measure_inference_time:
+            logger.info(f'Folder {subfolder_name} - Inference time: {inference_times[folder_idx]:.2f} ms. ')
 
     logger.info(f'Average PSNR: {sum(avg_psnr_l) / len(avg_psnr_l):.6f} dB ' f'for {len(subfolder_names)} clips. ')
     logger.info(f'Average SSIM: {sum(avg_ssim_l) / len(avg_ssim_l):.6f}  '
     f'for {len(subfolder_names)} clips. ')
-    # logger.info(f'Average FLOPS: {sum(FLOPs) / len(FLOPs):.6f}  '
-    # f'for {len(subfolder_names)} clips. ')
+
+    # --- Log average inference time ---
+    if measure_inference_time and inference_times:
+        total_frames = sum(num_frames_list)
+        total_time_ms = sum(inference_times)
+        num_clips = len(inference_times)
+
+        avg_time_per_clip = total_time_ms / num_clips
+        # Calculate average time per frame. This is the most accurate way for FPS.
+        avg_time_per_frame = total_time_ms / total_frames
+        avg_fps = 1000 / avg_time_per_frame
+
+        logger.info(f'==================================================')
+        logger.info(f'Performance Summary:')
+        logger.info(f'  - Total clips processed: {num_clips}')
+        logger.info(f'  - Total frames processed: {total_frames}')
+        logger.info(f'  - Total inference time: {total_time_ms / 1000:.2f} s')
+        logger.info(f'  - Avg. time per clip: {avg_time_per_clip:.2f} ms')
+        logger.info(f'  - Avg. time per frame: {avg_time_per_frame:.2f} ms')
+        logger.info(f'  - Average FPS: {avg_fps:.2f}')
+        logger.info(f'==================================================')
 
 def normalize_tensor(tensor):
     min_val = tensor.min()

@@ -184,7 +184,7 @@ class VideoRecurrentModel1(VideoBaseModel1):
             self.lq = torch.cat([self.lq, self.lq.flip(1)], dim=1)
 
         with torch.no_grad():
-            self.output, _ = self.net_g(self.lq)
+            self.output, _, _ = self.net_g(self.lq)
 
         if flip_seq:
             output_1 = self.output[:, :n, :, :, :]
