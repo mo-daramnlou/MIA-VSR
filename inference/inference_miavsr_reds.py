@@ -16,8 +16,8 @@ def main():
     print("Inference_miavsr_reds")
     # -------------------- Configurations -------------------- #
     device = torch.device('cuda:0')
-    save_imgs = True
-    measure_inference_time = False
+    save_imgs = False
+    measure_inference_time = True
     test_y_channel = False
     crop_border = 0
     # set suitable value to make sure cuda not out of memory
@@ -25,8 +25,8 @@ def main():
     # model
     # model_path = '/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth'
     # model_path = '/content/drive/MyDrive/DL/MIAVSR_REDS_x4.pth'
-    # model_path = '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/trained_models/MIAVSR_REDS_x4.pth'
-    model_path = '/home/mohammad/Documents/uni/deep learning/FinalProject/Logs/experiments/base_model/models/net_g_latest.pth'
+    # model_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/trained_models/MIAVSR_REDS_x4.pth'
+    model_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/experiments/base_model/models/net_g_latest.pth'
     # test data
     test_name = f'sotareds'
 
@@ -34,12 +34,12 @@ def main():
     # gt_folder = 'datasets/REDS4/GT'
     # lr_folder = '/data0/zhouxingyu/REDS4/sharp_bicubic'
     # lr_folder = '/content/inference_data/lr'
-    lr_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/lr'
+    lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/inference_data/lr'
     # gt_folder = '/data0/zhouxingyu/REDS4/gt'
     # gt_folder = '/content/inference_data/gt'
     # save_folder = f'/content/inference_data/results/{test_name}'
-    gt_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/gt'
-    save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/results/{test_name}'
+    gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/inference_data/gt'
+    save_folder = f'/home/mohammad/Documents/uni/deeplearning/FinalProject/inference_data/results/{test_name}'
     os.makedirs(save_folder, exist_ok=True)
 
     # logger
@@ -60,14 +60,14 @@ def main():
                  use_mask=False,
                 #  spynet_path='/data1/home/zhouxingyu/zhouxingyu_vsr/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
                 #  spynet_path='/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
-                 spynet_path='/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
+                 spynet_path='/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth')
     model.load_state_dict(torch.load(model_path)['params'], strict=False)
     model.eval()
     model = model.to(device)
 
     if measure_inference_time:
-        lr_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/Logs/Inference Time/data/lr'
-        gt_folder = '/home/mohammad/Documents/uni/deep learning/FinalProject/Logs/Inference Time/data/gt'
+        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/lr'
+        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/gt'
         # -------------------- Warm-up for stable measurements -------------------- #
         logger.info('Warming up GPU for 10 iterations...')
         # Create a dummy input tensor. The size should be representative of your actual input.
@@ -164,7 +164,7 @@ def main():
                     # imwrite(feat, s_folder)
 
             save_feature_maps_hdf5(
-                hdf5_path='/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5',
+                hdf5_path='/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5',
                 clip_name=subfolder_name,
                 frame_idx=idx, 
                 feature_maps=anchor_feats
@@ -224,7 +224,7 @@ def save_feature_maps_hdf5(hdf5_path, clip_name, frame_idx, feature_maps):
     feature_maps: dict with keys ['backward_1', 'forward_1', 'backward_2', 'forward_2']
                   and values as numpy arrays of shape (180, 320)    16, 4, 180, 320
     """
-    # save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_infer/'
+    # save_folder = f'/home/mohammad/Documents/uni/deeplearning/FinalProject/inference_data/kd_infer/'
     with h5py.File(hdf5_path, 'a') as f:
         grp = f.require_group(f"{clip_name}/{frame_idx:08d}")
         for module_name, fmap in feature_maps.items():

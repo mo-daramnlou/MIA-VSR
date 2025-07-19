@@ -39,40 +39,92 @@ class EFFVSR(nn.Module):
         self.conv1 = nn.Conv2d(3, mid_channels, kernel_size=3, padding=1)
         
         self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1)
-        self.prelu = nn.PReLU()
+        self.prelu = nn.PReLU(num_parameters=mid_channels)
         self.conv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1)
 
         self.conv4 = nn.Conv2d(mid_channels, 3 * (4 ** 2), kernel_size=3, padding=1)     # 6 -> 48
         self.pixel_shuffle = nn.PixelShuffle(4)
+
+    # def forward(self, lqs):
+
+    #     """Forward function for MIAVSR.
+
+    #     Args:
+    #         lqs (tensor): Input low quality (LQ) sequence with 4,180,320,30
+    #             shape 
+
+    #     Returns:
+    #         Tensor: Output HR sequence with shape 
+    #     """
+    #     preds = []
+    #     # print("lqs: ", lqs.shape)
+        
+    #     for i in range(lqs.shape[1]):
+    #         lq = lqs[:, i, :, :, :]
+    #         # print("lq: ", lq.shape)
+    #         x1 = self.conv1(lq)
+    #         x2 = self.conv2(x1)
+    #         x3 = self.prelu(x2)
+    #         x4 = self.conv3(x3)
+    #         x5 = self.conv4(x4 + x1)
+    #         x6 = self.pixel_shuffle(x5)
+    #         preds.append(x6)
+            
+    #     preds = torch.stack(preds, dim=1)
+    #     # print("preds: ", preds.shape) #[32, 8, 3, 128, 128] 1, 50, 3, 720, 1280
+    #     # 32, 10, 3, 128, 128
+        
+    #     return preds, None, None
+    
 
     def forward(self, lqs):
 
         """Forward function for MIAVSR.
 
         Args:
-            lqs (tensor): Input low quality (LQ) sequence with
-                shape [32, 10, 3, 32, 32] 
+            lqs (tensor): Input low quality (LQ) sequence with 4,180,320,30
+                shape 
 
         Returns:
-            Tensor: Output HR sequence with shape  (32,10,3,128,128)
+            Tensor: Output HR sequence with shape 
         """
         preds = []
-        # print("lqs: ", lqs.shape)
-        
+        print("lqs: ", lqs.shape) #32, 64, 64, 30
+
+        mode ="train"
+        if len(lqs.shape) == 4:
+            mode = "train"
+        else:
+            mode = "val"
+
+
+        if mode=="train": 
+            n, h, w, tc = lqs.shape
+            lqs = lqs.reshape(n, h, w, tc//3, 3)
+            lqs = lqs.permute(0, 3, 4, 1, 2)
+        # print("lqs: ", lqs.shape) #32, 10, 3, 64, 64
+
         for i in range(lqs.shape[1]):
             lq = lqs[:, i, :, :, :]
             # print("lq: ", lq.shape)
-            x1 = self.conv1(lq)
-            x2 = self.conv2(x1)
-            x3 = self.prelu(x2)
-            x4 = self.conv3(x3)
-            x5 = self.conv4(x4 + x1)
-            x6 = self.pixel_shuffle(x5)
-            preds.append(x6)
+            x = self.conv1(lq)
+            skip = x
+            x = self.conv2(x)
+            x = self.prelu(x)
+            x = self.conv3(x)
+            x = self.conv4(x + skip)
+            x = self.pixel_shuffle(x)
+            preds.append(x)
             
         preds = torch.stack(preds, dim=1)
         # print("preds: ", preds.shape) #[32, 8, 3, 128, 128] 1, 50, 3, 720, 1280
         # 32, 10, 3, 128, 128
+
+        if mode == "train":
+            n, t, c, h, w = preds.shape
+            preds = preds.permute(0, 3, 4, 1, 2)
+            preds = preds.reshape(n, h, w, t*c)
+        # print("preds: ", preds.shape) #32, 256, 256, 30
         
         return preds, None, None
 

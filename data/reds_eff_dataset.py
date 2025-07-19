@@ -12,7 +12,7 @@ from basicsr.utils.registry import DATASET_REGISTRY
 import os.path as osp
 
 @DATASET_REGISTRY.register()
-class REDSRecurrentDistillationDataset(data.Dataset):
+class REDSEffDataset(data.Dataset):
     """REDS dataset for training recurrent networks.
 
     The keys are generated from a meta info txt file.
@@ -48,7 +48,7 @@ class REDSRecurrentDistillationDataset(data.Dataset):
     """
 
     def __init__(self, opt):
-        super(REDSRecurrentDistillationDataset, self).__init__()
+        super(REDSEffDataset, self).__init__()
         print("init REDSRecurrentDistillationDataset")
         self.opt = opt
         self.gt_root, self.lq_root = Path(opt['dataroot_gt']), Path(opt['dataroot_lq'])
@@ -201,10 +201,15 @@ class REDSRecurrentDistillationDataset(data.Dataset):
         #     imwrite(feat, s_folder)
         
 
-        # img_lqs: (t, c, h, w)
+        # img_lqs: (t, c, h, w) 10, 3, 64, 64
         # img_gts: (t, c, h, w)
         # key: str
+        
+        img_lqs= img_lqs.reshape(-1, img_lqs.shape[2], img_lqs.shape[3]).permute(1,2,0)
+        img_gts= img_gts.reshape(-1, img_gts.shape[2], img_gts.shape[3]).permute(1,2,0)
 
+        # print("img_lqs: ", img_lqs.shape) # 64, 64, 30
+        # print("img_gts: ", img_gts.shape)
         data = {
             'lq': img_lqs,
             'gt': img_gts,

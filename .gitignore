@@ -368,3 +368,5 @@ models/__pycache__/
 tb_logger/
 trained_models/
 data/anchor_maps_teacher.h5
+g.py
+gt.py

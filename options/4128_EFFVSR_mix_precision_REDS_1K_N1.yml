@@ -9,7 +9,8 @@ use_static_graph: true
 datasets:
   train:
     name: REDS
-    type: REDSRecurrentDistillationDataset
+    # type: REDSRecurrentDistillationDataset
+    type: REDSEffDataset
     dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp/train/train_sharp
     dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic/train/train_sharp_bicubic/X4
     meta_info_file: /home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/meta_info_REDS_GT_30.txt
@@ -23,7 +24,7 @@ datasets:
       type: disk
 
     num_frame: 10
-    gt_size: 128
+    gt_size: 256
     interval_list: [1]
     random_reverse: false
     use_hflip: true
@@ -31,7 +32,7 @@ datasets:
 
     # data loader
     use_shuffle: true
-    num_worker_per_gpu: 12
+    num_worker_per_gpu: 6
     batch_size_per_gpu: 32
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
@@ -45,8 +46,8 @@ datasets:
   val:
     name: REDS4
     type: VideoRecurrentTestDataset
-    dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp/val/val_shar
-    dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp_bicubic/val/val_sharp_bicubic/X
+    dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp/val/val_sharp
+    dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp_bicubic/val/val_sharp_bicubic/X4
 
 
     cache_data: true
@@ -64,7 +65,7 @@ network_g:
   num_heads: [2,2]
   window_size: [3, 8, 8]
   num_frames: 3
-  img_size : 32
+  img_size : 64
   patch_size : 1
   cpu_cache_length: 100
   is_low_res_input: True
@@ -76,7 +77,7 @@ path:
   pretrain_network_g: ~
   strict_load_g: true
   resume_state: ~
-  # resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/2.state"
+  # resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4128_EFFVSR_mix_precision_REDS_600K_N1/training_states/15.state"
 train:
   ema_decay: 0.999
   optim_g:
@@ -87,19 +88,19 @@ train:
 
   scheduler:
     type: CosineAnnealingRestartLR
-    periods: [20000]
+    periods: [500000]
     restart_weights: [1]
     eta_min: !!float 1e-7
 
-  total_iter: 20000
+  total_iter: 500000
   warmup_iter: -1  # no warm up
   fix_flow: 5000 #-1 no fix flow
   flow_lr_mul: 0.125
 
   # curriculum learning settings
   curriculum:
-    enabled: true
-    switch_iter: 300000  # Iteration to switch to the next phase
+    enabled: false
+    switch_iter: 30000000  # Iteration to switch to the next phase
     phase2:
       gt_size: 256  # Corresponds to 64x64 LQ patches for 4x SR
       batch_size_per_gpu: 2  # Reduce batch size for larger patches to fit in memory
@@ -118,7 +119,7 @@ train:
 
 # validation settings
 val:
-  val_freq: 500
+  val_freq: 100
   save_img: false
 
   metrics:
@@ -133,8 +134,8 @@ val:
 
 # logging settings
 logger:
-  print_freq: 10
-  save_checkpoint_freq: 200
+  print_freq: 5
+  save_checkpoint_freq: 5
   use_tb_logger: true
   wandb:
     project: ~

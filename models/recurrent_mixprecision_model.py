@@ -172,7 +172,7 @@ class RecurrentMixPrecisionRTModel(VideoRecurrentModel1):
 
             # if self.ff:
             #     self.ff = False
-            #     save_folder = f'/home/mohammad/Documents/uni/deep learning/FinalProject/inference_data/kd_train3/'
+            #     save_folder = f'/home/mohammad/Documents/uni/deeplearning/FinalProject/inference_data/kd_train3/'
             #     o = {
             #         'lq': self.lq,
             #         'b1': self.anchor_gt_b1,

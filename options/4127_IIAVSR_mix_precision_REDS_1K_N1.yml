@@ -10,9 +10,9 @@ datasets:
   train:
     name: REDS
     type: REDSRecurrentDistillationDataset
-    dataroot_gt: /home/mohammad/Documents/uni/deep learning/FinalProject/train_sharp/train/train_sharp
-    dataroot_lq: /home/mohammad/Documents/uni/deep learning/FinalProject/train_sharp_bicubic/train/train_sharp_bicubic/X4
-    meta_info_file: /home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/meta_info_REDS_GT_30.txt
+    dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp/train/train_sharp
+    dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic/train/train_sharp_bicubic/X4
+    meta_info_file: /home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/meta_info_REDS_GT_30.txt
     # dataroot_gt: /content/train_sharp/train/train_sharp
     # dataroot_lq: /content/train_sharp_bi/train/train_sharp_bicubic/X4
     # meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT_30.txt
@@ -37,15 +37,16 @@ datasets:
     prefetch_mode: ~
     pin_memory: true
 
-    # feature_hdf5_path: '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5'
-    feature_hdf5_path: '/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5'
+    # feature_hdf5_path: '/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5'
+    feature_hdf5_path: '/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/anchor_maps_teacher.h5'
+    # feature_hdf5_path: '/content/kd_maps/anchor_maps_teacher.h5'
     kd_enabled: false
 
   val:
     name: REDS4
     type: VideoRecurrentTestDataset
-    dataroot_gt: /content/val_sharp/val
-    dataroot_lq: /content/val_sharp_bi/val/X4
+    dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp/val/val_sharp
+    dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp_bicubic/val/val_sharp_bicubic/X4
 
     cache_data: true
     io_backend:
@@ -67,14 +68,14 @@ network_g:
   cpu_cache_length: 100
   is_low_res_input: True
   # spynet_path: /content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
-  spynet_path: /home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
+  spynet_path: /home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth
 
 # path
 path:
   pretrain_network_g: ~
   strict_load_g: true
   resume_state: ~
-  # resume_state: "/home/mohammad/Documents/uni/deep learning/FinalProject/MIA-VSR/experiments/2.state"
+  # resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/2.state"
 train:
   ema_decay: 0.999
   optim_g:

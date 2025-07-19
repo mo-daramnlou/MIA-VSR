@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 from functools import lru_cache
 from einops import rearrange, repeat
 from .functions import batch_index_fill, batch_index_select
