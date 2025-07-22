@@ -8,6 +8,7 @@ from basicsr.archs.spynet_arch import SpyNet
 from archs.custom_spynet_arch import SpyNet4Levels
 from basicsr.utils.registry import ARCH_REGISTRY
 from archs.mia_sliding_arch import SwinIRFM
+# import ai_edge_torch
 
 
 @ARCH_REGISTRY.register()
@@ -89,7 +90,8 @@ class EFFVSR(nn.Module):
             Tensor: Output HR sequence with shape 
         """
         preds = []
-        print("lqs: ", lqs.shape) #32, 64, 64, 30
+        # print("lqs: ", lqs.shape) #32, 64, 64, 30  1, 3, 720, 1280
+        # print("len: ",len(lqs.shape))
 
         mode ="train"
         if len(lqs.shape) == 4:
@@ -150,14 +152,29 @@ if __name__ == '__main__':
         # spynet_path = '/content/MIA-VSR/experiments/pretrained_models/flownet/spynet_sintel_final-3d2a1287.pth'
     )
 
+    model.eval()
 
-    print(model)
-    # macs, params = get_model_complexity_info(model, (3, 64, 64), as_strings=True, backend='aten',
-    #                                        print_per_layer_stat=True, verbose=True)
-    # print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-    # print('{:<30}  {:<8}'.format('Number of parameters: ', params))
-    print("flops",model.flops() / 1e9)
+    # Make test run
+    prediction = model(torch.randn(1, 180, 320, 30))
+    print(prediction.shape)
 
-    x = torch.randn((1, 5, 3, img_size, img_size))
-    x = model(x)
-    print(x.shape)
+    # Converting model to TFLite
+
+    sample_input = (torch.randn(1, 180, 320, 30),)
+
+    # edge_model = ai_edge_torch.convert(model.eval(), sample_input)
+    # edge_model.export("/content/MIA-VSR/assets/effvsr30.tflite")
+
+
+
+
+    # print(model)
+    # # macs, params = get_model_complexity_info(model, (3, 64, 64), as_strings=True, backend='aten',
+    # #                                        print_per_layer_stat=True, verbose=True)
+    # # print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    # # print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+    # print("flops",model.flops() / 1e9)
+
+    # x = torch.randn((1, 5, 3, img_size, img_size))
+    # x = model(x)
+    # print(x.shape)
