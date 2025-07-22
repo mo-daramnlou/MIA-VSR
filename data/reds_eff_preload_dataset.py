@@ -6,10 +6,42 @@ from torch.utils import data as data
 import h5py
 import lmdb
 import sys
+import gc # Import garbage collector
 
 from basicsr.data.transforms import augment, paired_random_crop
 from basicsr.utils import FileClient, get_root_logger, imfrombytes, img2tensor
 from basicsr.utils.registry import DATASET_REGISTRY
+
+def gpu_paired_random_crop(img_gts, img_lqs, gt_patch_size, scale, gt_path=None):
+    """Paired random crop on GPU tensors, replicating basicsr logic."""
+    lq_patch_size = gt_patch_size // scale
+    t, c, h_lq, w_lq = img_lqs.size()
+    
+    # Randomly choose top and left coordinates for lq patch
+    top = random.randint(0, h_lq - lq_patch_size)
+    left = random.randint(0, w_lq - lq_patch_size)
+
+    # Crop lq patch
+    img_lqs = img_lqs[:, :, top:top + lq_patch_size, left:left + lq_patch_size]
+
+    # Crop corresponding gt patch
+    top_gt, left_gt = int(top * scale), int(left * scale)
+    img_gts = img_gts[:, :, top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size]
+    
+    return img_gts, img_lqs
+
+
+def gpu_augment(tensors, hflip=False, vflip=False, rot90=False):
+    """Augmentation on GPU tensors, replicating basicsr logic."""
+    if hflip:
+        tensors = torch.flip(tensors, dims=[3])
+    if vflip:
+        tensors = torch.flip(tensors, dims=[2])
+    if rot90:
+        tensors = tensors.transpose(2, 3)
+
+    return tensors
+
 
 @DATASET_REGISTRY.register()
 class REDSEffPreloadDataset(data.Dataset):
@@ -57,6 +89,7 @@ class REDSEffPreloadDataset(data.Dataset):
         self.gt_root, self.lq_root = Path(opt['dataroot_gt']), Path(opt['dataroot_lq'])
         self.num_frame = opt['num_frame']
         self.is_lmdb = (self.opt['io_backend']['type'] == 'lmdb')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         logger = get_root_logger()
 
@@ -77,70 +110,77 @@ class REDSEffPreloadDataset(data.Dataset):
         if opt['test_mode']:
             self.keys = [v for v in self.keys if v.split('/')[0] in val_partition]
         else:
-            self.keys = [v for v in self.keys if v.split('/')[0] not in val_partition]
-            # self.keys = [v for v in self.keys]
+            # self.keys = [v for v in self.keys if v.split('/')[0] not in val_partition]
+            self.keys = [v for v in self.keys if v.split('/')[0]]
 
         # --- PRE-LOADING LOGIC ---
         if not self.is_lmdb:
             raise ValueError('Pre-loading is only supported for LMDB backend.')
 
-        logger.info('----------- Pre-loading REDS dataset into memory... -----------')
-        self.preloaded_lq_data = {}
-        self.preloaded_gt_data = {}
+        # --- PRE-LOADING LOGIC (CPU) ---
+        logger.info('----------- Pre-loading REDS dataset into CPU RAM... -----------')
+        self.preloaded_lq_data_cpu = {}
+        self.preloaded_gt_data_cpu = {}
         
-        # Get a set of unique clip names to iterate over
         unique_clips_to_load = sorted(list(set([k.split('/')[0] for k in self.keys])))
         logger.info(f'Found {len(unique_clips_to_load)} clips to load for pre-loading.')
 
-        # Open LMDB environments
         env_lq = lmdb.open(str(self.lq_root), readonly=True, lock=False, readahead=False, meminit=False)
         env_gt = lmdb.open(str(self.gt_root), readonly=True, lock=False, readahead=False, meminit=False)
 
-        self.each_clip_frame_number=60
-
+        self.each_clip_frame_number = 25 
         with env_lq.begin(write=False) as txn_lq, env_gt.begin(write=False) as txn_gt:
             for clip in unique_clips_to_load:
-                for frame_idx in range(self.each_clip_frame_number):  # Each clip has 100 frames (0-99)
+                for frame_idx in range(self.each_clip_frame_number):
                     key = f'{clip}/{frame_idx:08d}'
-                    
                     lq_img_bytes = txn_lq.get(key.encode('ascii'))
                     gt_img_bytes = txn_gt.get(key.encode('ascii'))
                     
-                    if lq_img_bytes:
-                        self.preloaded_lq_data[key] = imfrombytes(lq_img_bytes, float32=True)
-                    if gt_img_bytes:
-                        self.preloaded_gt_data[key] = imfrombytes(gt_img_bytes, float32=True)
+                    if lq_img_bytes and gt_img_bytes:
+                        lq_img = imfrombytes(lq_img_bytes, float32=True)
+                        gt_img = imfrombytes(gt_img_bytes, float32=True)
+                        self.preloaded_lq_data_cpu[key] = torch.from_numpy(lq_img).permute(2, 0, 1)
+                        self.preloaded_gt_data_cpu[key] = torch.from_numpy(gt_img).permute(2, 0, 1)
         
-        lq_size = sum(arr.nbytes for arr in self.preloaded_lq_data.values())
-        gt_size = sum(arr.nbytes for arr in self.preloaded_gt_data.values())
-        total_size_gb = (lq_size + gt_size) / (1024**3)
-        logger.info(f'Successfully pre-loaded {len(self.preloaded_lq_data)} LQ and {len(self.preloaded_gt_data)} GT frames.')
-        logger.info(f'Approximate memory usage for images: {total_size_gb:.2f} GB.')
-        # --- END PRE-LOADING LOGIC ---
+        logger.info('----------- Pre-loading to CPU RAM complete. -----------')
 
-        # temporal augmentation configs
+        # --- VRAM CACHING LOGIC ---
+        self.vram_cache_lq = {}
+        self.vram_cache_gt = {}
+        vram_cache_gb = self.opt.get('vram_cache_gb', 0)
+        if vram_cache_gb > 0:
+            logger.info(f'----------- Caching portion of dataset to VRAM ({vram_cache_gb} GB)... -----------')
+            
+            total_cached_bytes = 0
+            target_cache_bytes = vram_cache_gb * (1024**3)
+
+            for key in self.preloaded_lq_data_cpu:
+                if total_cached_bytes >= target_cache_bytes:
+                    break
+                
+                lq_tensor = self.preloaded_lq_data_cpu[key]
+                gt_tensor = self.preloaded_gt_data_cpu[key]
+
+                self.vram_cache_lq[key] = lq_tensor.to(self.device)
+                self.vram_cache_gt[key] = gt_tensor.to(self.device)
+                total_cached_bytes += lq_tensor.element_size() * lq_tensor.nelement()
+                total_cached_bytes += gt_tensor.element_size() * gt_tensor.nelement()
+            
+            logger.info(f'Cached {len(self.vram_cache_lq)} frames to VRAM. Actual size: {total_cached_bytes / (1024**3):.2f} GB.')
+
+        # --- MODIFICATION: Conditionally clear CPU RAM ---
+        if self.opt.get('clear_cpu_ram', False):
+            logger.info('Clearing CPU RAM cache as requested...')
+            del self.preloaded_lq_data_cpu
+            del self.preloaded_gt_data_cpu
+            gc.collect()
+            logger.info('CPU RAM cache cleared.')
+        # --- END MODIFICATION ---
+        
+        logger.info('-------------------- Dataset initialization complete --------------------')
+
         self.interval_list = opt.get('interval_list', [1])
         self.random_reverse = opt.get('random_reverse', False)
-        
-        self.feature_hdf5_path = opt.get('feature_hdf5_path', None)
-        self.kd_enabled = opt['kd_enabled']
-        self.preloaded_features = {}
-        if self.kd_enabled and self.feature_hdf5_path is not None:
-            logger.info('Pre-loading knowledge distillation features...')
-            with h5py.File(self.feature_hdf5_path, 'r') as hdf5_file:
-                 for key in hdf5_file:
-                    if key.split('/')[0] in unique_clips_to_load:
-                        group = hdf5_file[key]
-                        self.preloaded_features[key] = {
-                            'backward_1': torch.from_numpy(group['backward_1'][()]).float(),
-                            'forward_1': torch.from_numpy(group['forward_1'][()]).float(),
-                            'backward_2': torch.from_numpy(group['backward_2'][()]).float(),
-                            'forward_2': torch.from_numpy(group['forward_2'][()]).float(),
-                        }
-            logger.info(f'Successfully pre-loaded features for {len(self.preloaded_features)} frames.')
-        
-        logger.info('-------------------- Pre-loading complete --------------------')
-
 
     def __getitem__(self, index):
         scale = self.opt['scale']
@@ -148,84 +188,51 @@ class REDSEffPreloadDataset(data.Dataset):
         key = self.keys[index]
         clip_name, frame_name = key.split('/')  # key example: 000/00000000
 
-        # determine the neighboring frames
         interval = random.choice(self.interval_list)
-
-        # ensure not exceeding the borders
         start_frame_idx = int(frame_name)
         if start_frame_idx > self.each_clip_frame_number - self.num_frame * interval:
             start_frame_idx = random.randint(0, self.each_clip_frame_number - self.num_frame * interval)
         end_frame_idx = start_frame_idx + self.num_frame * interval
-
         neighbor_list = list(range(start_frame_idx, end_frame_idx, interval))
 
-        # random reverse
         if self.random_reverse and random.random() < 0.5:
             neighbor_list.reverse()
 
-        # get the neighboring LQ and GT frames
-        img_lqs = []
-        img_gts = []
+        img_lqs_list = []
+        img_gts_list = []
         for neighbor in neighbor_list:
             frame_key = f'{clip_name}/{neighbor:08d}'
-            # Use .copy() to prevent augmentations from modifying the master data in RAM
-            img_lqs.append(self.preloaded_lq_data[frame_key].copy())
-            img_gts.append(self.preloaded_gt_data[frame_key].copy())
-
-        feature_maps_batch = {'backward_1': [], 'forward_1': [], 'backward_2': [], 'forward_2': []}
-        if self.kd_enabled and self.preloaded_features:
-            for neighbor in neighbor_list:
-                frame_key = f'{clip_name}/{neighbor:08d}'
-                if frame_key in self.preloaded_features:
-                    features = self.preloaded_features[frame_key]
-                    for module in feature_maps_batch.keys():
-                        feature_maps_batch[module].append(features[module].clone())
             
-            for module in feature_maps_batch:
-                if feature_maps_batch[module]:
-                    feature_maps_batch[module] = torch.stack(feature_maps_batch[module], dim=0)
+            # Check VRAM cache first
+            if frame_key in self.vram_cache_lq:
+                img_lqs_list.append(self.vram_cache_lq[frame_key].clone())
+                img_gts_list.append(self.vram_cache_gt[frame_key].clone())
+            else:
+                # This fallback will only work if `clear_cpu_ram` is false.
+                # If true, it will raise a KeyError, indicating an insufficient VRAM cache.
+                img_lqs_list.append(self.preloaded_lq_data_cpu[frame_key].to(self.device))
+                img_gts_list.append(self.preloaded_gt_data_cpu[frame_key].to(self.device))
 
-        # randomly crop
-        if self.kd_enabled:
-            img_lqs.extend([f.unsqueeze(2).numpy() for f in feature_maps_batch['backward_1']])
-            img_lqs.extend([f.unsqueeze(2).numpy() for f in feature_maps_batch['forward_1']])
-            img_lqs.extend([f.unsqueeze(2).numpy() for f in feature_maps_batch['backward_2']])
-            img_lqs.extend([f.unsqueeze(2).numpy() for f in feature_maps_batch['forward_2']])
+        # Stack frames into a sequence tensor on the GPU
+        img_lqs = torch.stack(img_lqs_list, dim=0)
+        img_gts = torch.stack(img_gts_list, dim=0)
 
-        img_gts, img_lqs = paired_random_crop(img_gts, img_lqs, gt_size, scale, f'{clip_name}/{neighbor_list[0]:08d}')
+        # Perform augmentations on the GPU
+        img_gts, img_lqs = gpu_paired_random_crop(img_gts, img_lqs, gt_size, scale)
+        
+        hflip = self.opt['use_hflip'] and random.random() < 0.5
+        vflip = self.opt['use_rot'] and random.random() < 0.5
+        rot90 = self.opt['use_rot'] and random.random() < 0.5
 
-        # augmentation - flip, rotate
-        img_lqs.extend(img_gts)
-        img_results = augment(img_lqs, self.opt['use_hflip'], self.opt['use_rot'])
+        # Apply the same augmentations to both tensors separately
+        img_lqs = gpu_augment(img_lqs, hflip, vflip, rot90)
+        img_gts = gpu_augment(img_gts, hflip, vflip, rot90)
 
-        img_results = img2tensor(img_results)
-        if self.kd_enabled:
-            num_lq_frames = len(neighbor_list)
-            img_lqs = torch.stack(img_results[:num_lq_frames], dim=0)
-            feature_maps_batch['backward_1'] = torch.stack(img_results[num_lq_frames : 2*num_lq_frames], dim=0)
-            feature_maps_batch['forward_1'] = torch.stack(img_results[2*num_lq_frames : 3*num_lq_frames], dim=0)
-            feature_maps_batch['backward_2'] = torch.stack(img_results[3*num_lq_frames : 4*num_lq_frames], dim=0)
-            feature_maps_batch['forward_2'] = torch.stack(img_results[4*num_lq_frames : 5*num_lq_frames], dim=0)
-            img_gts = torch.stack(img_results[5*num_lq_frames:], dim=0)
-        else:
-            img_lqs = torch.stack(img_results[:len(img_results) // 2], dim=0)
-            img_gts = torch.stack(img_results[len(img_results) // 2:], dim=0)
-
-        # reshape to match model input
+        # Reshape to match model input
         img_lqs = img_lqs.reshape(-1, img_lqs.shape[2], img_lqs.shape[3]).permute(1, 2, 0)
         img_gts = img_gts.reshape(-1, img_gts.shape[2], img_gts.shape[3]).permute(1, 2, 0)
 
-        data = {'lq': img_lqs, 'gt': img_gts, 'key': key}
-        if self.kd_enabled:
-            data['feature_maps'] = feature_maps_batch
-
-        return data
+        return {'lq': img_lqs, 'gt': img_gts, 'key': key}
 
     def __len__(self):
         return len(self.keys)
-
-    def normalize_tensor(self, tensor):
-        min_val = tensor.min()
-        max_val = tensor.max()
-        normalized_tensor = (tensor - min_val) / (max_val - min_val)
-        return normalized_tensor
