@@ -79,54 +79,40 @@ class EFFVSR(nn.Module):
     
 
     def forward(self, lqs):
-
-        """Forward function for MIAVSR.
-
-        Args:
-            lqs (tensor): Input low quality (LQ) sequence with 4,180,320,30
-                shape 
-
-        Returns:
-            Tensor: Output HR sequence with shape 
         """
-        preds = []
-        # print("lqs: ", lqs.shape) #32, 64, 64, 30  1, 3, 720, 1280
-        # print("len: ",len(lqs.shape))
+        Forward function for RCBSR, adapted for efficient video processing.
+        It processes all frames in a batch simultaneously.
+        """
+        # --- Input Shape Handling ---
 
-        mode ="train"
-        if len(lqs.shape) == 4:
-            mode = "train"
-        else:
-            mode = "val"
+        # print("lqs: ", lqs.shape) # 32, 64, 64, 30 --  1, 3, 720, 1280
 
-
-        if mode=="train": 
+        is_train_mode = len(lqs.shape) == 4
+        if is_train_mode:
             n, h, w, tc = lqs.shape
-            lqs = lqs.reshape(n, h, w, tc//3, 3)
-            lqs = lqs.permute(0, 3, 4, 1, 2)
+            lqs = lqs.view(n, h, w, -1, 3).permute(0, 3, 4, 1, 2).contiguous()
+        
+        n, t, c, h, w = lqs.shape
+        lqs_batch = lqs.view(n * t, c, h, w) #320, 3, 64, 64
+
         # print("lqs: ", lqs.shape) #32, 10, 3, 64, 64
 
-        for i in range(lqs.shape[1]):
-            lq = lqs[:, i, :, :, :]
-            # print("lq: ", lq.shape)
-            x = self.conv1(lq)
-            skip = x
-            x = self.conv2(x)
-            x = self.prelu(x)
-            x = self.conv3(x)
-            x = self.conv4(x + skip)
-            x = self.pixel_shuffle(x)
-            preds.append(x)
-            
-        preds = torch.stack(preds, dim=1)
-        # print("preds: ", preds.shape) #[32, 10, 3, 128, 128] 1, 50, 3, 720, 1280
+        x = self.conv1(lqs_batch)
+        skip = x
+        x = self.conv2(x)
+        x = self.prelu(x)
+        x = self.conv3(x)
+        x = self.conv4(x + skip)
+        output_batch = self.pixel_shuffle(x) #320, 3, 256, 256
 
-        if mode == "train":
-            n, t, c, h, w = preds.shape
-            preds = preds.permute(0, 3, 4, 1, 2)
-            preds = preds.reshape(n, h, w, t*c)
+        # --- Output Shape Handling ---
+        _, c_out, h_out, w_out = output_batch.shape
+        preds = output_batch.view(n, t, c_out, h_out, w_out)
+
+        if is_train_mode:
+            preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
         # print("preds: ", preds.shape) #32, 256, 256, 30
-        
+
         return preds, None, None
 
 
