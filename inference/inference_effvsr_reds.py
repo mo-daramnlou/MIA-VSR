@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import h5py
 from archs.mia_vsr_arch import MIAVSR
 from archs.eff_vsr_arch import EFFVSR
+from archs.bi_vsr_arch import BIVSR
 from basicsr.data.data_util import read_img_seq
 from basicsr.metrics import psnr_ssim
 from basicsr.utils import get_root_logger, get_time_str, imwrite, tensor2img
@@ -41,14 +42,17 @@ def main():
     logger.info(f'Model path: {model_path}')
 
     # set up the models
+    # model = BIVSR()
     model = EFFVSR(mid_channels=6)
     model.load_state_dict(torch.load(model_path)['params'], strict=False)
     model.eval()
     model = model.to(device)
 
     if measure_inference_time:
-        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/lr'
-        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/gt'
+        # lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/lr'
+        # gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/gt'
+        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp/val/val_sharp'
+        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp_bicubic/val/val_sharp_bicubic/X4'
         save_folder = f'/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/res{time.time()}'
         # -------------------- Warm-up for stable measurements -------------------- #
         logger.info('Warming up GPU for 10 iterations...')

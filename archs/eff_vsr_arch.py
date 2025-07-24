@@ -119,8 +119,7 @@ class EFFVSR(nn.Module):
             preds.append(x)
             
         preds = torch.stack(preds, dim=1)
-        # print("preds: ", preds.shape) #[32, 8, 3, 128, 128] 1, 50, 3, 720, 1280
-        # 32, 10, 3, 128, 128
+        # print("preds: ", preds.shape) #[32, 10, 3, 128, 128] 1, 50, 3, 720, 1280
 
         if mode == "train":
             n, t, c, h, w = preds.shape

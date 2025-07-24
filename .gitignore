@@ -372,3 +372,4 @@ g.py
 gt.py
 data/reds_eff_dali_dataset.py
 options/4129_EFFDaliVSR_mix_precision_REDS_1K_N1.yml
+edge/environment.yml
