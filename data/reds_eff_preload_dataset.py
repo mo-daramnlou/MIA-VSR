@@ -128,7 +128,7 @@ class REDSEffPreloadDataset(data.Dataset):
         env_lq = lmdb.open(str(self.lq_root), readonly=True, lock=False, readahead=False, meminit=False)
         env_gt = lmdb.open(str(self.gt_root), readonly=True, lock=False, readahead=False, meminit=False)
 
-        self.each_clip_frame_number = 25 
+        self.each_clip_frame_number = 30 
         with env_lq.begin(write=False) as txn_lq, env_gt.begin(write=False) as txn_gt:
             for clip in unique_clips_to_load:
                 for frame_idx in range(self.each_clip_frame_number):

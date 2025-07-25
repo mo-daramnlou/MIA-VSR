@@ -101,7 +101,7 @@ class RepConvBlock(nn.Module):
         # Branch 2: 1x1 conv
         self.branch2 = nn.Conv2d(self.inp_planes, self.out_planes, kernel_size=1, padding=0)
 
-        self.rep_params_cache = None
+        # self.rep_params_cache = None
 
 
         if self.act_type == 'prelu':
@@ -118,7 +118,7 @@ class RepConvBlock(nn.Module):
             raise ValueError('The type of activation if not support!')
 
     def forward(self, x):
-        print("self.training: ",self.training)
+        # print("self.training: ",self.training)
         if self.training:
             # Calculate outputs of both branches
             y1 = self.branch1(x)
@@ -132,9 +132,11 @@ class RepConvBlock(nn.Module):
                 y += x
         else:
             # In eval mode, use the fused kernel and bias
-            if self.rep_params_cache is None:
-                self.rep_params_cache = self.rep_params()
-            RK, RB = self.rep_params_cache
+            # if self.rep_params_cache is None:
+            #     print("using cached params")
+            #     self.rep_params_cache = self.rep_params()
+            # RK, RB = self.rep_params_cache
+            RK, RB = self.rep_params()
             # The padding is 1 for a 3x3 kernel
             y = F.conv2d(input=x, weight=RK, bias=RB, stride=1, padding=1)
 
@@ -225,21 +227,22 @@ class ANTVSR(nn.Module):
 
 
         # Initial convolution
-        x0 = self.relu(self.conv_first(lqs_batch))
-        identity = x0
+        feat = self.relu(self.conv_first(lqs_batch))
+        skip_connection = feat
         
         # Process through RepConv blocks
-        x = x0
+        backbone_feat = feat
         for block in self.body:
-            x = block(x)
+            backbone_feat = block(backbone_feat)
         
         # Skip connection
-        x = x + identity
+        feat = backbone_feat + skip_connection
         
         # Final convolution, clamp, and upscale
-        x = self.relu(self.conv_final(x))
-        x = torch.clamp(x, max=255)  # Prevent overflow as described in the paper
-        output_batch = self.upsample(x)
+        feat = self.relu(self.conv_final(feat))
+        # if not self.training:  SINCE I HAVEN'T USED CLIPPING FOR OTHER MODELS, FOR ACURATE COMPARISSON I DON'T USE IT HERE AS WELL
+        #     feat = torch.clamp(feat, max=255)  # Prevent overflow as described in the paper
+        output_batch = self.upsample(feat)
 
 
         # --- Output Shape Handling ---
@@ -285,7 +288,6 @@ if __name__ == '__main__':
     with torch.no_grad():
         rep_output = model(test_input)
 
-    # print(rep_output)
     
     # Verify outputs match
     print(f"Output match before/after reparameterization: "
