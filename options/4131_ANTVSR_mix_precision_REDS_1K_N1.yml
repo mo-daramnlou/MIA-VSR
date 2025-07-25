@@ -1,4 +1,4 @@
-name: 4130_RCBSR_mix_precision_REDS_600K_N1
+name: 4131_ANTVSR_mix_precision_REDS_600K_N1
 model_type: RecurrentMixPrecisionRTModel
 scale: 4
 num_gpu: 1  # official: 8 GPUs
@@ -35,7 +35,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 0
-    batch_size_per_gpu: 16
+    batch_size_per_gpu: 32
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
     pin_memory: false
@@ -63,9 +63,9 @@ datasets:
 
 # network structures
 network_g:
-  type: RCBSR
+  type: ANTVSR
   mid_channels: 8
-  num_blocks: 1
+  num_blocks: 4
 
 # path
 path:

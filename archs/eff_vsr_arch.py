@@ -36,7 +36,9 @@ class EFFVSR(nn.Module):
                 use_mask=True,
                 spynet_path=None):
         super().__init__()
+        self.mid_channels= mid_channels
 
+        self.relu = nn.ReLU()
         self.conv1 = nn.Conv2d(3, mid_channels, kernel_size=3, padding=1)
         
         self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1)
@@ -97,13 +99,43 @@ class EFFVSR(nn.Module):
 
         # print("lqs: ", lqs.shape) #32, 10, 3, 64, 64
 
-        x = self.conv1(lqs_batch)
+        x = self.relu(self.conv1(lqs_batch))
         skip = x
         x = self.conv2(x)
-        x = self.prelu(x)
-        x = self.conv3(x)
-        x = self.conv4(x + skip)
+        x = self.prelu(x) #320, 6, 64, 64
+        
+
+        # # --- Start of Modified Frame Concatenation Logic ---
+        # # 1. Reshape to separate batch and time dimensions.
+        # # Shape changes from (320, 6, 64, 64) to (32, 10, 6, 64, 64).
+        # x_reshaped = x.view(n, t, self.mid_channels, h, w)
+
+        # # 2. Create the t-1, t, and t+1 sequences along the time dimension (dim=1).
+        # # This operation is now performed independently for each of the 32 batches.
+
+        # # For each batch, prepend its first frame to frames 0 through t-2.
+        # x_prev = torch.cat([x_reshaped[:, 0:1, ...], x_reshaped[:, :-1, ...]], dim=1)
+
+        # # The 't' sequence is just the original reshaped tensor.
+        # x_curr = x_reshaped
+
+        # # For each batch, append its last frame to frames 1 through t-1.
+        # x_next = torch.cat([x_reshaped[:, 1:, ...], x_reshaped[:, -1:, ...]], dim=1)
+
+        # # 3. Concatenate the three tensors along the channel dimension (dim=2).
+        # # Shape becomes: (32, 10, 18, 64, 64).
+        # x_concat = torch.cat((x_prev, x_curr, x_next), dim=2)
+
+        # # 4. Reshape back to the flattened format for the next conv layer.
+        # # Shape becomes: (320, 18, 64, 64).
+        # x = x_concat.view(n * t, self.mid_channels * 3, h, w)
+        # # --- End of Modified Logic ---
+
+
+        x = self.relu(self.conv3(x))
+        x = self.relu(self.conv4(x + skip))
         output_batch = self.pixel_shuffle(x) #320, 3, 256, 256
+
 
         # --- Output Shape Handling ---
         _, c_out, h_out, w_out = output_batch.shape

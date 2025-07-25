@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from basicsr.utils.registry import ARCH_REGISTRY
+# import ai_edge_torch
 
 # This is the low-level implementation of the re-parameterizable convolutions.
 # It remains unchanged from the original file.
@@ -289,23 +290,57 @@ class RCBSR(nn.Module):
         return preds, None, None
 
 
+# if __name__ == '__main__':
+#     # Test the RCBSR model with the winning configuration from the challenge.
+#     # num_feat (C) = 8, num_blocks (M) = 1, upscale = 4
+#     model = RCBSR(
+#         mid_channels=8,
+#         num_blocks=1
+#     )
+#     model.train() # Use training mode to test the multi-branch structure
+
+#     print("RCBSR Model Architecture:")
+#     print(model)
+
+#     # Test with a validation-style input tensor
+#     test_input_val = torch.randn(1, 10, 3, 45, 80) # (N, T, C, H_in, W_in)
+#     print(f"\nInput shape (validation style): {test_input_val.shape}")
+
+#     with torch.no_grad():
+#         prediction_val = model(test_input_val)
+
+#     print(f"Output shape (validation style): {prediction_val.shape}")
+
 if __name__ == '__main__':
-    # Test the RCBSR model with the winning configuration from the challenge.
-    # num_feat (C) = 8, num_blocks (M) = 1, upscale = 4
+    # --- Configuration ---
+    mid_channels = 32
+    num_blocks = 4
+    upscale = 4
+
+    # --- Create Model ---
     model = RCBSR(
         mid_channels=8,
         num_blocks=1
     )
-    model.train() # Use training mode to test the multi-branch structure
-
-    print("RCBSR Model Architecture:")
-    print(model)
-
-    # Test with a validation-style input tensor
-    test_input_val = torch.randn(1, 10, 3, 45, 80) # (N, T, C, H_in, W_in)
-    print(f"\nInput shape (validation style): {test_input_val.shape}")
-
+    
+    # --- Verification ---
+    print("\n--- Verifying Re-parameterization ---")
+    dummy_input = torch.randn(1, 180, 320, 30) # N, T, C, H, W
+    
+    # Get output from the training-time model
+    model.train()
     with torch.no_grad():
-        prediction_val = model(test_input_val)
+        out_train, _, _ = model(dummy_input)
+    print("Generated output in training mode.")
 
-    print(f"Output shape (validation style): {prediction_val.shape}")
+    # Get output from the inference-time model
+    model.eval()
+    with torch.no_grad():
+        out_infer, _, _ = model(dummy_input)
+    print("Generated output in inference mode.")
+
+    # The outputs should be numerically very close
+    difference = torch.sum(torch.abs(out_train - out_infer))
+    print(f"Sum of absolute difference between outputs: {difference.item()}")
+    assert torch.allclose(out_train, out_infer, atol=1e-5), "Fusion failed: outputs do not match!"
+    print("\nVerification successful: The model correctly switches between training and inference modes.")

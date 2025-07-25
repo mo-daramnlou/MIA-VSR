@@ -75,14 +75,14 @@ def create_lmdb_for_reds():
     """
     
     # train_sharp
-    folder_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp4/train/train_sharp'
-    lmdb_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_with_val4.lmdb'
+    folder_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp2/train/train_sharp'
+    lmdb_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_with_val2.lmdb'
     img_path_list, keys = prepare_keys_reds(folder_path)
     make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
 
     # train_sharp_bicubic
-    folder_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic4/train/train_sharp_bicubic/X4'
-    lmdb_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic_with_val4.lmdb'
+    folder_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic2/train/train_sharp_bicubic/X4'
+    lmdb_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic_with_val2.lmdb'
     img_path_list, keys = prepare_keys_reds(folder_path)
     make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
 
