@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import h5py
 from archs.mia_vsr_arch import MIAVSR
 from archs.eff_vsr_arch import EFFVSR
+from archs.gen_vsr_arch import GENVSR
 from archs.bi_vsr_arch import BIVSR
 from basicsr.data.data_util import read_img_seq
 from basicsr.metrics import psnr_ssim
@@ -26,7 +27,7 @@ def main():
     # set suitable value to make sure cuda not out of memory
     # interval = 30
     
-    model_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4128_EFFVSR_mix_precision_REDS_600K_N1/models/net_g_25000.pth'
+    model_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/experiments/ex_genvsr2/content/MIA-VSR/experiments/4131_GENVSR_mix_precision_REDS_600K_N1/models/net_g_60000.pth'
     # test data
     test_name = f'sotareds'
 
@@ -43,16 +44,16 @@ def main():
 
     # set up the models
     # model = BIVSR()
-    model = EFFVSR(mid_channels=6)
-    model.load_state_dict(torch.load(model_path)['params'], strict=False)
+    model = GENVSR(mid_channels=28, num_blocks=4)
+    model.load_state_dict(torch.load(model_path)['params'], strict=True)
     model.eval()
     model = model.to(device)
 
     if measure_inference_time:
         # lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/lr'
         # gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/gt'
-        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp/val/val_sharp'
-        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp_bicubic/val/val_sharp_bicubic/X4'
+        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp_bicubic/val/val_sharp_bicubic/X4'
+        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp/val/val_sharp'
         save_folder = f'/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/res{time.time()}'
         # -------------------- Warm-up for stable measurements -------------------- #
         logger.info('Warming up GPU for 10 iterations...')
@@ -72,17 +73,19 @@ def main():
     subfolder_l = sorted(glob.glob(osp.join(lr_folder, '*')))
     subfolder_gt_l = sorted(glob.glob(osp.join(gt_folder, '*')))
 
-    # print(model)
+    print(len(subfolder_l))
     # print("Total Flops",model.flops() / 1e9)
 
     # for each subfolder
     subfolder_names = []
-    for subfolder, subfolder_gt in zip(subfolder_l, subfolder_gt_l):
+    for i, (subfolder, subfolder_gt) in enumerate(zip(subfolder_l, subfolder_gt_l)):
         subfolder_name = osp.basename(subfolder)
         subfolder_names.append(subfolder_name)
 
         # read lq and gt images
         imgs_lq, imgnames = read_img_seq(subfolder, return_imgname=True)
+        print(torch.min(imgs_lq))
+        print(torch.max(imgs_lq))
 
         # calculate the iter numbers
         length = len(imgs_lq)

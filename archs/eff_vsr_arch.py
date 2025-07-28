@@ -38,7 +38,7 @@ class EFFVSR(nn.Module):
         super().__init__()
         self.mid_channels= mid_channels
 
-        self.relu = nn.ReLU()
+        self.relu = nn.ReLU(inplace=True)
         self.conv1 = nn.Conv2d(3, mid_channels, kernel_size=3, padding=1)
         
         self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1)
