@@ -1,0 +1,20 @@
+name: aiedge
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10  # Or another version compatible with your project
+  - numpy
+  - opencv-python
+  - requests
+  - pytorch::torch==2.4.0
+  - pytorch::torchvision==0.19.0
+  - timm
+  - tqdm
+  - scikit-image
+  - scipy
+  - pillow
+  - thinc
+  - spacy
+  - ai-edge-torch

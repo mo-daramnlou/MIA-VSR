@@ -11,3 +11,4 @@ Pillow
 thinc
 spacy
 ai-edge-torch
+basicsr

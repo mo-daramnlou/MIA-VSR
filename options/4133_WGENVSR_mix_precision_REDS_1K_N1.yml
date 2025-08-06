@@ -1,4 +1,4 @@
-name: 4128_EFFVSR_mix_precision_REDS_600K_N1
+name: 4133_WGENVSR_mix_precision_REDS_600K_N1
 model_type: RecurrentMixPrecisionRTModel
 scale: 4
 num_gpu: 1  # official: 8 GPUs
@@ -17,8 +17,8 @@ datasets:
     # dataroot_gt: /content/train_sharp/train/train_sharp
     # dataroot_lq: /content/train_sharp_bi/train/train_sharp_bicubic/X4
     # meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT_30.txt
-    dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_with_val4.lmdb
-    dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic_with_val4.lmdb
+    dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_with_val2.lmdb
+    dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic_with_val2.lmdb
     val_partition: REDS4  # set to 'official' when use the official validation partition
     # val_partition: 'official'  # set to 'official' when use the official validation partition
     test_mode: False
@@ -35,7 +35,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 0
-    batch_size_per_gpu: 16
+    batch_size_per_gpu: 32
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
     pin_memory: false
@@ -46,6 +46,7 @@ datasets:
     kd_enabled: false
 
     vram_cache_gb: 2
+    clear_cpu_ram: false
 
   val:
     name: REDS4
@@ -62,9 +63,10 @@ datasets:
 
 # network structures
 network_g:
-  type: EFFVSR
-  mid_channels: 6
- 
+  type: WGENVSR
+  mid_channels: 28
+  num_blocks: 4
+
 # path
 path:
   pretrain_network_g: ~
@@ -112,7 +114,7 @@ train:
 
 # validation settings
 val:
-  val_freq: 50
+  val_freq: 2000
   save_img: false
 
   metrics:
@@ -127,7 +129,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 5
+  print_freq: 200
   save_checkpoint_freq: 5000
   use_tb_logger: true
   wandb:

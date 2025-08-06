@@ -6,7 +6,7 @@ from basicsr.utils.registry import ARCH_REGISTRY
 
 
 @ARCH_REGISTRY.register()
-class GENVSR(nn.Module):
+class ABPNVSR(nn.Module):
     def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3):
         """
         PyTorch implementation of the base7 TensorFlow model.
@@ -18,7 +18,7 @@ class GENVSR(nn.Module):
             m (int): Number of middle convolutional layers.
             out_channels (int): Number of channels in the output image.
         """
-        super(GENVSR, self).__init__()
+        super(ABPNVSR, self).__init__()
         self.scale = scale
 
         # Feature extraction layer
@@ -31,13 +31,9 @@ class GENVSR(nn.Module):
             middle_layers.append(nn.ReLU(inplace=True))
         self.middle_convs = nn.Sequential(*middle_layers)
 
-        # T convs
-        self.tconv1 = nn.Conv2d(mid_channels, out_channels * (scale**2), kernel_size=1)
-        self.tconv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
-        self.tconv3 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=1)
-
         # Pre-shuffle convolutional layers
-        self.psconv = nn.Conv2d(out_channels * (scale**2) + 3, out_channels * (scale**2), kernel_size=1)
+        self.pre_shuffle_conv1 = nn.Conv2d(mid_channels, out_channels * (scale**2), kernel_size=3, padding=1)
+        self.pre_shuffle_conv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
 
         # PixelShuffle layer (equivalent to tf.nn.depth_to_space)
         self.pixel_shuffle = nn.PixelShuffle(scale)
@@ -64,8 +60,7 @@ class GENVSR(nn.Module):
         Note: PyTorch uses (N, C, H, W) channel order, while the TensorFlow
         model used (N, H, W, C). The model is adapted for the PyTorch convention.
         """
-        #  print("lqs: ", lqs.shape) # 32, 64, 64, 30 --  1, 3, 720, 1280
-
+        
         is_train_mode = len(lqs.shape) == 4
         if is_train_mode:
             n, h, w, tc = lqs.shape
@@ -76,32 +71,30 @@ class GENVSR(nn.Module):
 
         # print("lqs: ", lqs.shape) #32, 10, 3, 64, 64
 
-        image_skip = lqs_batch
+        upsampled_inp = torch.cat([lqs_batch] * (self.scale**2), dim=1)
+
         # Feature extraction
         x = self.relu(self.fea_conv(lqs_batch))
-        feat_skip=x
         
         # Middle convolutions
         x = self.middle_convs(x)
-        x = x + feat_skip
         
-        # T convs
-        x = self.relu(self.tconv1(x))
-        x = self.relu(self.tconv2(x))
-        x = self.relu(self.tconv3(x))
-
         # Pre-shuffle convolutions
-        x = torch.cat((x, image_skip), dim=1)
-        x = self.relu(self.psconv(x))
+        x = self.relu(self.pre_shuffle_conv1(x))
+        x = self.pre_shuffle_conv2(x)
+        
+        # Add skip connection (equivalent to tf.keras.layers.Add)
+        x = x + upsampled_inp
 
         # Pixel-Shuffle and final output processing
-        out = self.pixel_shuffle(x)
+        output_batch = self.pixel_shuffle(x)
         
         # Clip the output to a valid image range
-        output_batch = torch.clamp(out, max = 255.)
+        if not self.training:
+            output_batch = torch.clamp(output_batch, 0., 255.)
 
-
-        # --- Output Shape Handling ---
+        
+         # --- Output Shape Handling ---
         _, c_out, h_out, w_out = output_batch.shape
         preds = output_batch.view(n, t, c_out, h_out, w_out)
 
@@ -114,7 +107,7 @@ class GENVSR(nn.Module):
 
 if __name__ == '__main__':
 
-    model = GENVSR(mid_channels=28, num_blocks=4)
+    model = ABPNVSR(mid_channels=28, num_blocks=4)
     model.eval()
 
     # Make test run
