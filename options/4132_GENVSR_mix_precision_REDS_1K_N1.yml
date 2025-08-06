@@ -1,4 +1,4 @@
-name: 4131_GENVSR_mix_precision_REDS_600K_N1
+name: 4132_GENVSR_mix_precision_REDS_1K_N1
 model_type: RecurrentMixPrecisionRTModel
 scale: 4
 num_gpu: 1  # official: 8 GPUs
@@ -25,7 +25,7 @@ datasets:
     io_backend:
       type: lmdb
 
-    num_frame: 10
+    num_frame: 21
     gt_size: 256
     interval_list: [1]
     random_reverse: false
@@ -35,7 +35,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 0
-    batch_size_per_gpu: 32
+    batch_size_per_gpu: 16
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
     pin_memory: false
@@ -77,17 +77,18 @@ train:
   ema_decay: 0.999
   optim_g:
     type: Adam
-    lr: !!float 2e-4
+    lr: !!float 4e-3
     weight_decay: 0
     betas: [0.9, 0.99]
 
   scheduler:
-    type: CosineAnnealingRestartLR
-    periods: [500000]
-    restart_weights: [1]
-    eta_min: !!float 1e-7
+    type: MultiStepRestartLR
+    milestones: [10500, 13500, 16500, 19500, 22500, 25500, 28500, 31500, 34500, 37500, 40500, 43500, 46500]
+    # milestones: [105, 135, 165, 195, 225, 255, 285, 315, 345, 375, 405, 435, 465]
+    gamma: 0.7
 
-  total_iter: 500000
+
+  total_iter: 46500
   warmup_iter: -1  # no warm up
   fix_flow: 5000 #-1 no fix flow
   flow_lr_mul: 0.125
@@ -108,7 +109,7 @@ train:
 
   # losses
   pixel_opt:
-    type: CharbonnierLoss
+    type: L2
     loss_weight: 1.0
     reduction: mean
 
