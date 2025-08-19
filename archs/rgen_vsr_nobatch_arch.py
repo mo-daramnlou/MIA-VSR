@@ -5,8 +5,8 @@ from basicsr.utils.registry import ARCH_REGISTRY
 # import ai_edge_torch
 
 
-@ARCH_REGISTRY.register()
-class GENVSR(nn.Module):
+# @ARCH_REGISTRY.register()
+class RGENVSR(nn.Module):
     def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3):
         """
         PyTorch implementation of the base7 TensorFlow model.
@@ -18,7 +18,7 @@ class GENVSR(nn.Module):
             m (int): Number of middle convolutional layers.
             out_channels (int): Number of channels in the output image.
         """
-        super(GENVSR, self).__init__()
+        super(RGENVSR, self).__init__()
         self.scale = scale
 
         # Feature extraction layer
@@ -32,12 +32,15 @@ class GENVSR(nn.Module):
         self.middle_convs = nn.Sequential(*middle_layers)
 
         # T convs
-        self.tconv1 = nn.Conv2d(mid_channels, out_channels * (scale**2), kernel_size=1)
+        self.tconv1 = nn.Conv2d(2 * mid_channels, out_channels * (scale**2), kernel_size=1)
         self.tconv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
         self.tconv3 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=1)
 
+        # H convs
+        self.hconv = nn.Conv2d(out_channels * (scale**2), mid_channels, kernel_size=1)
+
         # Pre-shuffle convolutional layers
-        self.psconv = nn.Conv2d(out_channels * (scale**2) + 3, out_channels * (scale**2), kernel_size=1)
+        self.psconv = nn.Conv2d(2 * out_channels * (scale**2) + 3, out_channels * (scale**2), kernel_size=1)
 
         # PixelShuffle layer (equivalent to tf.nn.depth_to_space)
         self.pixel_shuffle = nn.PixelShuffle(scale)
@@ -85,20 +88,87 @@ class GENVSR(nn.Module):
         x = self.middle_convs(x)
         x = x + feat_skip
         
-        # T convs
-        x = self.relu(self.tconv1(x))
-        x = self.relu(self.tconv2(x))
-        x = self.relu(self.tconv3(x))
 
-        # Pre-shuffle convolutions
-        x = torch.cat((x, image_skip), dim=1)
-        x = self.relu(self.psconv(x))
+
+
+
+
+
+        #3. Bidirectional recurrent aggregation.
+        res = []
+        
+        # Initialize the hidden state for forward and backward passes.
+        # now_frame_forward = x[0:1, :, :, :]
+        # now_frame_backward = x[t-1:t, :, :, :]
+        # hidden = torch.cat([now_frame_forward, now_frame_backward], dim=0) # Shape: [2, 2*hidden, H, W]
+        # res.append(hidden)
+        
+        hidden=None
+
+        for i in range(0, t):
+            # Get current frames for both directions.
+            now_frame_forward = x[i:i+1, :, :, :]
+            now_frame_backward = x[(t-i-1):(t-i), :, :, :]
+            now_frame = torch.cat([now_frame_forward, now_frame_backward], dim=0)
+            
+            # Concatenate previous hidden state with current frame features.
+            # Shape becomes [2, 4*hidden, H, W] before aggregation.
+            # hidden = self.aggr(torch.cat([hidden, now_frame], dim=1))
+            if i == 0:
+                hidden= now_frame
+
+             # T convs
+            out = self.relu(self.tconv1(torch.cat([hidden, now_frame], dim=1)))
+            out = self.relu(self.tconv2(out))
+            out = self.relu(self.tconv3(out))
+            hidden = self.relu(self.hconv(out))
+            res.append(out)
+            
+        # 4. Upsample the aggregated features.
+        res2 = []
+        fused_features=[]
+        for i in range(0, t):
+            # t = []
+            # Fuse the forward and backward features for the current time step along the channel dimension.
+            
+            # Upsample the fused features. The input to upsample is a batch created by concatenating items in t.
+            # t_0_1_res = self.upsample([t, h, w])
+
+             # Pre-shuffle convolutions
+            fused_features.append(torch.cat([res[i][0:1, :, :, :], res[t-i-1][1:2, :, :, :]], dim=1))
+        
+        fused_features = torch.stack(fused_features, dim=1).view(n * t, -1 , h, w)
+
+        fused_features = self.relu(self.psconv(torch.cat([fused_features,image_skip], dim=1)))
 
         # Pixel-Shuffle and final output processing
-        out = self.pixel_shuffle(x)
+        output_batch = self.pixel_shuffle(fused_features)
+        
+        # res2.append(out)
+        
+        # Concatenate the list of upsampled frames into a single tensor.
+        # The result is the learned residual.
+        # output_batch = torch.cat(res2, dim=0).view(n * t, 3, h * 4, w * 4)
+        
+        # 5. Add the learned residual to the bilinear upsampling result.
+        # return residual
+    
+
+
+
+
+
+
+
+
+
+
+       
+
+       
         
         # Clip the output to a valid image range
-        output_batch = torch.clamp(out, max = 255.)
+        output_batch = torch.clamp(output_batch, max = 255.)
 
 
         # --- Output Shape Handling ---
@@ -114,11 +184,11 @@ class GENVSR(nn.Module):
 
 if __name__ == '__main__':
 
-    model = GENVSR(mid_channels=28, num_blocks=4)
+    model = RGENVSR(mid_channels=28, num_blocks=4)
     model.eval()
 
     # Make test run
-    prediction = model(torch.randn(32, 180, 320, 30))
+    prediction = model(torch.randn(1, 180, 320, 30))
     print(prediction.shape)
 
     # Converting model to TFLite

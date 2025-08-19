@@ -77,17 +77,18 @@ train:
   ema_decay: 0.999
   optim_g:
     type: Adam
-    lr: !!float 2e-4
+    lr: !!float 4e-3
     weight_decay: 0
     betas: [0.9, 0.99]
 
   scheduler:
-    type: CosineAnnealingRestartLR
-    periods: [500000]
-    restart_weights: [1]
-    eta_min: !!float 1e-7
+    type: MultiStepRestartLR
+    milestones: [10500, 13500, 16500, 19500, 22500, 25500, 28500, 31500, 34500, 37500, 40500, 43500, 46500]
+    # milestones: [105, 135, 165, 195, 225, 255, 285, 315, 345, 375, 405, 435, 465]
+    gamma: 0.7
 
-  total_iter: 500000
+
+  total_iter: 46500
   warmup_iter: -1  # no warm up
   fix_flow: 5000 #-1 no fix flow
   flow_lr_mul: 0.125
@@ -129,7 +130,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 200
+  print_freq: 5
   save_checkpoint_freq: 5000
   use_tb_logger: true
   wandb:

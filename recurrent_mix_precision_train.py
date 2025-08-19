@@ -90,8 +90,17 @@ def load_resume_state(opt):
         device_id = torch.cuda.current_device()
         resume_state = torch.load(resume_state_path, map_location=lambda storage, loc: storage.cuda(device_id))
         check_resume(opt, resume_state['iter'])
+        resume_state = clean_state_dict_for_resume(resume_state)
+    
     return resume_state
 
+def clean_state_dict_for_resume(state_dict):
+    # Remove any keys related to inference-only weights (e.g., collapsed_weights)
+    keys_to_remove = [k for k in state_dict if 'collapsed_weights' in k]
+    for k in keys_to_remove:
+        print(f"Removing {k} from checkpoint for training resume.")
+        del state_dict[k]
+    return state_dict
 
 def train_pipeline(root_path):
     # parse options, set distributed setting, set ramdom seed
@@ -128,13 +137,21 @@ def train_pipeline(root_path):
     # create model
     model = build_model(opt)
     if resume_state:  # resume training
+        if opt['train'].get('resume_reset_optim'):
+            logger.info('resume_reset_optim is True. Removing optimizer and scheduler states from checkpoint.')
+            keys_to_pop = [k for k in resume_state.keys() if 'optimizer' in k or 'scheduler' in k]
+            if keys_to_pop:
+                for k in keys_to_pop:
+                    logger.info(f'  - Removing {k} from resume_state.')
+                    del resume_state[k]
+
         model.resume_training(resume_state)  # handle optimizers and schedulers
         logger.info(f"Resuming training from epoch: {resume_state['epoch']}, " f"iter: {resume_state['iter']}.")
         start_epoch = resume_state['epoch']
         current_iter = resume_state['iter']
     else:
         start_epoch = 0
-        current_iter = 0
+        current_iter = opt['train'].get('start_iter', 0)
 
     # create message logger (formatted outputs)
     msg_logger = MessageLogger(opt, current_iter, tb_logger)

@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import math
 from basicsr.utils.registry import ARCH_REGISTRY
+import torch.nn.functional as F
 # import ai_edge_torch
 
 # This is the low-level implementation of the re-parameterizable convolutions.
@@ -211,46 +212,81 @@ class ECB(nn.Module):
             RK, RB = RK + K_idt, RB + B_idt
         return RK, RB
 
-# This is the main model class, modified to match the RCBSR architecture
-# from the paper and to handle video inputs efficiently.
+
 @ARCH_REGISTRY.register()
-class RCBSR(nn.Module):
-    """RCBSR network structure for video super-resolution.
+class WGEN4VSR(nn.Module):
+    def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3, integrate_channels=16):
+        """
+        PyTorch implementation of the base7 TensorFlow model.
 
-    This implementation matches the architecture described in the paper
-    "RCBSR: Re-parameterization Convolution Block for Super-Resolution".
-    It processes multiple frames simultaneously for faster inference.
-    """
-    def __init__(self, num_in_ch=3, num_out_ch=3, mid_channels=8, num_blocks=1, upscale=4):
-        super().__init__()
-        self.upscale = upscale
+        Args:
+            scale (int): The upsampling scale factor.
+            in_channels (int): Number of channels in the input image.
+            num_fea (int): Number of feature channels.
+            m (int): Number of middle convolutional layers.
+            out_channels (int): Number of channels in the output image.
+        """
+        super(WGEN4VSR, self).__init__()
+        self.scale = scale
+        self.integrate_channels=integrate_channels
 
-        # Initial feature extraction layer
-        self.conv_first = nn.Conv2d(num_in_ch, mid_channels, 3, 1, 1)
+        # Feature extraction layer
+        self.fea_conv = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1)
 
-        # Main backbone of the network, composed of M ECB blocks.
-        # The paper uses act_type='relu' and with_idt=False for the main blocks.
-        self.backbone = nn.ModuleList(
-            [ECB(mid_channels, mid_channels, depth_multiplier=2.0, act_type='relu', with_idt=False) for _ in range(num_blocks)]
-        )
+        # Middle convolutional layers
+        middle_layers = []
+        for _ in range(num_blocks):
+            # middle_layers.append(nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1))
+            # middle_layers.append(nn.ReLU(inplace=True))
+            middle_layers.append(ECB(mid_channels, mid_channels, depth_multiplier=2.0, act_type='relu', with_idt=False))
+        self.middle_convs = nn.Sequential(*middle_layers)
 
-        # Upsampling block using a standard convolution and PixelShuffle
-        self.upsample = nn.Sequential(
-            nn.Conv2d(mid_channels, num_out_ch * (upscale ** 2), 3, 1, 1),
-            nn.PixelShuffle(upscale)
-        )
+        # T convs
+        self.tconv1 = nn.Conv2d(mid_channels, out_channels * (scale**2), kernel_size=1)
+        self.tconv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
+        self.tconv3 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=1)
 
-        # The paper specifies replacing PReLU with ReLU for efficiency.
+        # bT convs
+        self.btconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.btconv2 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+
+        # aT convs
+        self.atconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.atconv2 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+
+        # Pre-shuffle convolutional layers
+        self.psconv = nn.Conv2d(out_channels * (scale**2) + 3 + (integrate_channels * 2), out_channels * (scale**2), kernel_size=1)
+
+        # PixelShuffle layer (equivalent to tf.nn.depth_to_space)
+        self.pixel_shuffle = nn.PixelShuffle(scale)
+
+        # Activation
         self.relu = nn.ReLU(inplace=True)
+
+        # self.iconv = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1)
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Initializes weights similar to the Keras version."""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                # glorot_normal initializer in Keras is Xavier normal in PyTorch
+                nn.init.xavier_normal_(m.weight)
+                if m.bias is not None:
+                    # bias_initializer='zeros'
+                    nn.init.zeros_(m.bias)
 
     def forward(self, lqs):
         """
-        Forward function for RCBSR, adapted for efficient video processing.
-        It processes all frames in a batch simultaneously.
+        Forward pass.
+        Note: PyTorch uses (N, C, H, W) channel order, while the TensorFlow
+        model used (N, H, W, C). The model is adapted for the PyTorch convention.
         """
-        # --- Input Shape Handling ---
-
-        # print("lqs: ", lqs.shape) # 32, 64, 64, 30 --  1, 3, 720, 1280
+        #  print("lqs: ", lqs.shape) # 32, 64, 64, 30 --  1, 3, 720, 1280
 
         is_train_mode = len(lqs.shape) == 4
         if is_train_mode:
@@ -258,26 +294,97 @@ class RCBSR(nn.Module):
             lqs = lqs.view(n, h, w, -1, 3).permute(0, 3, 4, 1, 2).contiguous()
         
         n, t, c, h, w = lqs.shape
-        lqs_batch = lqs.view(n * t, c, h, w) #320, 3, 64, 64
+        lqs_batch = lqs.view(n * t, c, h, w).contiguous() #320, 3, 64, 64
 
         # print("lqs: ", lqs.shape) #32, 10, 3, 64, 64
 
-        # 1. Initial feature extraction on the whole batch of frames
-        feat = self.relu(self.conv_first(lqs_batch))
+        # t, c, h, w = lqs.shape
+        image_skip = lqs_batch
+        # Feature extraction
+        x = self.relu(self.fea_conv(lqs_batch))
+        feat_skip=x
+        
+        # Middle convolutions
+        x = self.middle_convs(x)
+        x = x + feat_skip
+        
+        # T convs
+        tx = self.relu(self.tconv1(x))
+        tx = self.relu(self.tconv2(tx))
+        tx = self.relu(self.tconv3(tx))
 
-        # 2. Global residual connection
-        skip_connection = feat
+        # bT convs
+        btx = self.relu(self.btconv1(x))
+        btx = self.relu(self.btconv2(btx))
+        btx = self.relu(self.btconv3(btx))
 
-        # 3. Backbone processing on the whole batch
-        backbone_feat = feat
-        for block in self.backbone:
-            backbone_feat = block(backbone_feat) # ReLU is inside the ECB block now
+        # bT convs
+        atx = self.relu(self.atconv1(x))
+        atx = self.relu(self.atconv2(atx))
+        atx = self.relu(self.atconv3(atx))
 
-        # 4. Add the skip connection
-        feat = backbone_feat + skip_connection
 
-        # 5. Upsample to generate the HR frames for the whole batch
-        output_batch = self.upsample(feat) #320, 3, 256, 256
+        if self.training:
+            btx = btx.view(n, t, self.integrate_channels, h, w).contiguous()
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_btx = torch.cat((btx[:,0:1,:,:,:], btx[:,:-1,:,:,:]), dim=1)
+            shifted_btx = shifted_btx.view(n*t, self.integrate_channels, h, w).contiguous()
+
+            atx = atx.view(n, t, self.integrate_channels, h, w).contiguous()
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_atx = torch.cat((atx[:,1:,:,:,:], atx[:,t-1:t,:,:,:]), dim=1)
+            shifted_atx = shifted_atx.view(n*t, self.integrate_channels, h, w).contiguous()
+
+        else:
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_btx = torch.cat((btx[0:1], btx[:-1]), dim=0)
+
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_atx = torch.cat((atx[1:], atx[t-1:t]), dim=0)
+        
+
+        # Pre-shuffle convolutions
+        x = torch.cat((shifted_btx ,tx, image_skip, shifted_atx), dim=1)
+
+
+        # Assert proper concatenation
+        
+        
+        if self.training:
+            btx = btx.view(n* t, self.integrate_channels, h, w).contiguous()
+            atx = atx.view(n* t, self.integrate_channels, h, w).contiguous()
+            for i,f in enumerate(x):
+                if i%t == 0:
+                    assert torch.equal(f[0:self.integrate_channels], btx[i]), ('ass failed1')
+                else:
+                    assert torch.equal(f[0:self.integrate_channels], btx[i-1]), ('ass failed2')
+
+                if i%t == t-1:
+                    assert torch.equal(f[-self.integrate_channels:], atx[i]), ('ass failed3')
+                else:
+                    assert torch.equal(f[-self.integrate_channels:], atx[i+1]), ('ass failed4')
+        else:
+            for i,f in enumerate(x):
+                if i == 0:
+                    assert torch.equal(f[0:self.integrate_channels], btx[i]), ('ass failed1')
+                else:
+                    assert torch.equal(f[0:self.integrate_channels], btx[i-1]), ('ass failed2')
+
+                if i == len(x)-1:
+                    assert torch.equal(f[-self.integrate_channels:], atx[i]), ('ass failed3')
+                else:
+                    assert torch.equal(f[-self.integrate_channels:], atx[i+1]), ('ass failed4')
+
+
+
+        x = self.relu(self.psconv(x))
+
+        # Pixel-Shuffle and final output processing
+        output_batch = self.pixel_shuffle(x)
+        
+        # Clip the output to a valid image range
+        # output_batch = torch.clamp(output_batch, max = 255.)
+
 
         # --- Output Shape Handling ---
         _, c_out, h_out, w_out = output_batch.shape
@@ -286,42 +393,13 @@ class RCBSR(nn.Module):
         if is_train_mode:
             preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
         # print("preds: ", preds.shape) #32, 256, 256, 30
+        
+        return preds, None, None
 
-        return preds
-
-
-# if __name__ == '__main__':
-#     # Test the RCBSR model with the winning configuration from the challenge.
-#     # num_feat (C) = 8, num_blocks (M) = 1, upscale = 4
-#     model = RCBSR(
-#         mid_channels=8,
-#         num_blocks=1
-#     )
-#     model.train() # Use training mode to test the multi-branch structure
-
-#     print("RCBSR Model Architecture:")
-#     print(model)
-
-#     # Test with a validation-style input tensor
-#     test_input_val = torch.randn(1, 10, 3, 45, 80) # (N, T, C, H_in, W_in)
-#     print(f"\nInput shape (validation style): {test_input_val.shape}")
-
-#     with torch.no_grad():
-#         prediction_val = model(test_input_val)
-
-#     print(f"Output shape (validation style): {prediction_val.shape}")
 
 if __name__ == '__main__':
-    # --- Configuration ---
-    mid_channels = 32
-    num_blocks = 4
-    upscale = 4
 
-    # --- Create Model ---
-    model = RCBSR(
-        mid_channels=8,
-        num_blocks=4
-    )
+    model = WGEN4VSR(mid_channels=28, num_blocks=4)
     model.eval()
 
     # Make test run
@@ -334,25 +412,3 @@ if __name__ == '__main__':
 
     # edge_model = ai_edge_torch.convert(model.eval(), sample_input)
     # edge_model.export("/content/MIA-VSR/assets/genvsr_wo_reshape_triplet8.tflite")
-    
-    # # --- Verification ---
-    # print("\n--- Verifying Re-parameterization ---")
-    # dummy_input = torch.randn(1, 180, 320, 30) # N, T, C, H, W
-    
-    # # Get output from the training-time model
-    # model.train()
-    # with torch.no_grad():
-    #     out_train, _, _ = model(dummy_input)
-    # print("Generated output in training mode.")
-
-    # # Get output from the inference-time model
-    # model.eval()
-    # with torch.no_grad():
-    #     out_infer, _, _ = model(dummy_input)
-    # print("Generated output in inference mode.")
-
-    # # The outputs should be numerically very close
-    # difference = torch.sum(torch.abs(out_train - out_infer))
-    # print(f"Sum of absolute difference between outputs: {difference.item()}")
-    # assert torch.allclose(out_train, out_infer, atol=1e-5), "Fusion failed: outputs do not match!"
-    # print("\nVerification successful: The model correctly switches between training and inference modes.")

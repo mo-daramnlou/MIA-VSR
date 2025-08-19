@@ -90,8 +90,8 @@ class ABPNVSR(nn.Module):
         output_batch = self.pixel_shuffle(x)
         
         # Clip the output to a valid image range
-        if not self.training:
-            output_batch = torch.clamp(output_batch, 0., 255.)
+        # if not self.training:
+        #     output_batch = torch.clamp(output_batch, 0., 255.)
 
         
          # --- Output Shape Handling ---
@@ -102,7 +102,7 @@ class ABPNVSR(nn.Module):
             preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
         # print("preds: ", preds.shape) #32, 256, 256, 30
         
-        return preds, None, None
+        return preds
 
 
 if __name__ == '__main__':

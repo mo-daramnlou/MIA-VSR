@@ -1,4 +1,4 @@
-name: 4133_WGENVSR_mix_precision_REDS_600K_N1
+name: 4135_DIGVSR_mix_precision_REDS_600K_N1
 model_type: RecurrentMixPrecisionRTModel
 scale: 4
 num_gpu: 1  # official: 8 GPUs
@@ -25,7 +25,7 @@ datasets:
     io_backend:
       type: lmdb
 
-    num_frame: 21
+    num_frame: 10
     gt_size: 256
     interval_list: [1]
     random_reverse: false
@@ -35,7 +35,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 0
-    batch_size_per_gpu: 16
+    batch_size_per_gpu: 32
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
     pin_memory: false
@@ -45,7 +45,7 @@ datasets:
     # feature_hdf5_path: '/content/kd_maps/anchor_maps_teacher.h5'
     kd_enabled: false
 
-    vram_cache_gb: 0
+    vram_cache_gb: 2
     clear_cpu_ram: false
 
   val:
@@ -63,9 +63,9 @@ datasets:
 
 # network structures
 network_g:
-  type: WGEN10VSR
-  mid_channels: 28
-  num_blocks: 4
+  type: DIGVSR
+  # mid_channels: 28
+  # num_blocks: 4
 
 # path
 path:
@@ -86,6 +86,7 @@ train:
     milestones: [10500, 13500, 16500, 19500, 22500, 25500, 28500, 31500, 34500, 37500, 40500, 43500, 46500]
     # milestones: [105, 135, 165, 195, 225, 255, 285, 315, 345, 375, 405, 435, 465]
     gamma: 0.7
+
 
   total_iter: 46500
   warmup_iter: -1  # no warm up
@@ -108,13 +109,13 @@ train:
 
   # losses
   pixel_opt:
-    type: MSELoss
+    type: CharbonnierLoss
     loss_weight: 1.0
     reduction: mean
 
 # validation settings
 val:
-  val_freq: 200
+  val_freq: 2000
   save_img: false
 
   metrics:
@@ -129,7 +130,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 200
+  print_freq: 5
   save_checkpoint_freq: 5000
   use_tb_logger: true
   wandb:

@@ -1,4 +1,4 @@
-name: 4133_WGENVSR_mix_precision_REDS_600K_N1
+name: 4136_RGENVSR_mix_precision_REDS_1K_N1
 model_type: RecurrentMixPrecisionRTModel
 scale: 4
 num_gpu: 1  # official: 8 GPUs
@@ -63,16 +63,17 @@ datasets:
 
 # network structures
 network_g:
-  type: WGEN10VSR
+  type: RGEN4GRUVSR
   mid_channels: 28
   num_blocks: 4
 
 # path
 path:
+  # pretrain_network_g: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4136_RGENVSR_mix_precision_REDS_1K_N1_archived_20250813_130657/models/net_g_latest.pth"
   pretrain_network_g: ~
   strict_load_g: true
-  resume_state: ~
-  # resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4128_EFFVSR_mix_precision_REDS_600K_N1/training_states/15.state"
+  # resume_state: ~
+  # resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4136_RGENVSR_mix_precision_REDS_1K_N1/training_states/45000.state"
 train:
   ema_decay: 0.999
   optim_g:
@@ -84,8 +85,10 @@ train:
   scheduler:
     type: MultiStepRestartLR
     milestones: [10500, 13500, 16500, 19500, 22500, 25500, 28500, 31500, 34500, 37500, 40500, 43500, 46500]
+    # milestones: [50250, 51750, 53250, 54750, 56250, 57750, 59250, 60750, 62250, 63750, 65250, 66750, 68250]
     # milestones: [105, 135, 165, 195, 225, 255, 285, 315, 345, 375, 405, 435, 465]
     gamma: 0.7
+
 
   total_iter: 46500
   warmup_iter: -1  # no warm up
@@ -130,7 +133,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: 5000
+  save_checkpoint_freq: 200
   use_tb_logger: true
   wandb:
     project: ~
