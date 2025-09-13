@@ -3,7 +3,7 @@ import torch.nn as nn
 import math
 import torch.nn.functional as F
 # from basicsr.utils.registry import ARCH_REGISTRY
-import ai_edge_torch
+# import ai_edge_torch
 
 
 # @ARCH_REGISTRY.register()
@@ -251,5 +251,5 @@ if __name__ == '__main__':
 
     sample_input = (torch.randn(1, 180, 320, 30),)
 
-    edge_model = ai_edge_torch.convert(model.eval(), sample_input)
-    edge_model.export("/content/MIA-VSR/assets/wgen38vsr.tflite")
+    # edge_model = ai_edge_torch.convert(model.eval(), sample_input)
+    # edge_model.export("/content/MIA-VSR/assets/wgen38vsr.tflite")
