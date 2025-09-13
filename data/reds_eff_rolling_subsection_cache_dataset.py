@@ -57,8 +57,8 @@ class REDSEffRollingSubsectionCacheDataset(data.Dataset):
         val_partition_map = {'REDS4': ['000', '011', '015', '020'], 'official': [f'{v:03d}' for v in range(240, 270)]}
         val_partition = val_partition_map.get(opt['val_partition'], [])
         
-        if not opt['test_mode']:
-            self.all_clip_names = [v for v in self.all_clip_names if v not in val_partition]
+        # if not opt['test_mode']:
+        #     self.all_clip_names = [v for v in self.all_clip_names if v not in val_partition]
 
         self.vram_cache_lq, self.vram_cache_gt = {}, {}
         self.valid_sequences = []
