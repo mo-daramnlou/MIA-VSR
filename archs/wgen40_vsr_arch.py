@@ -1,14 +1,14 @@
 import torch
 import torch.nn as nn
 import math
-from torchsummary import summary
-from basicsr.utils.registry import ARCH_REGISTRY
+import torch.nn.functional as F
+# from basicsr.utils.registry import ARCH_REGISTRY
 # import ai_edge_torch
 
 
-@ARCH_REGISTRY.register()
-class WGENVSR(nn.Module):
-    def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3, integrate_channels=16):
+# @ARCH_REGISTRY.register()
+class WGEN40VSR(nn.Module):
+    def __init__(self, scale=4, in_channels=3, mid_channels=24, num_blocks=6, out_channels=3, integrate_channels=16):
         """
         PyTorch implementation of the base7 TensorFlow model.
 
@@ -19,7 +19,7 @@ class WGENVSR(nn.Module):
             m (int): Number of middle convolutional layers.
             out_channels (int): Number of channels in the output image.
         """
-        super(WGENVSR, self).__init__()
+        super(WGEN40VSR, self).__init__()
         self.scale = scale
         self.integrate_channels=integrate_channels
 
@@ -28,34 +28,58 @@ class WGENVSR(nn.Module):
 
         # Middle convolutional layers
         middle_layers = []
-        for _ in range(num_blocks):
-            middle_layers.append(nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1))
+        self.middle_conv1 = nn.Conv2d(mid_channels , mid_channels , kernel_size=3, padding=1)
+        for _ in range(int(num_blocks/2)-1):
+            middle_layers.append(nn.Conv2d(mid_channels, mid_channels , kernel_size=3, padding=1))
             middle_layers.append(nn.ReLU(inplace=True))
-        self.middle_convs = nn.Sequential(*middle_layers)
+        self.middle_convs1 = nn.Sequential(*middle_layers)
+
+        middle_layers1 = []
+        for _ in range(int(num_blocks/2)):
+            middle_layers1.append(nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1))
+            middle_layers1.append(nn.ReLU(inplace=True))
+        self.middle_convs2 = nn.Sequential(*middle_layers1)
+
+        # Pre T convs
+        self.ptconv2 = nn.Conv2d(mid_channels + 8, integrate_channels, kernel_size=1)
+        self.ptconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.ptconv4 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.ptconv5 = nn.Conv2d(integrate_channels, mid_channels, kernel_size=1)
 
         # T convs
-        self.tconv1 = nn.Conv2d(mid_channels, out_channels * (scale**2), kernel_size=1)
+        self.tconv1 = nn.Conv2d(mid_channels + 2 * integrate_channels, out_channels * (scale**2), kernel_size=1)
         self.tconv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
         self.tconv3 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=1)
 
         # bT convs
-        self.btconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
-        self.btconv2 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
-        self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+        # self.btconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.btconv2 = nn.Conv2d(mid_channels + 8, integrate_channels, kernel_size=1)
+        self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.btconv4 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.btconv5 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
 
         # aT convs
-        self.atconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
-        self.atconv2 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
-        self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+        # self.atconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.atconv2 = nn.Conv2d(mid_channels + 8, integrate_channels, kernel_size=1)
+        self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.atconv4 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.atconv5 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
 
         # Pre-shuffle convolutional layers
-        self.psconv = nn.Conv2d(out_channels * (scale**2) + 3 + (integrate_channels * 2), out_channels * (scale**2), kernel_size=1)
+        self.psconv = nn.Conv2d(out_channels * (scale**2) + 3, out_channels * (scale**2), kernel_size=1)
 
         # PixelShuffle layer (equivalent to tf.nn.depth_to_space)
         self.pixel_shuffle = nn.PixelShuffle(scale)
 
         # Activation
-        self.relu = nn.ReLU6(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.middle_conv_ds = nn.Conv2d(mid_channels, 8, kernel_size=3, padding=1, stride=2)
+        middle_layers_ds1 = []
+        for _ in range(int(num_blocks/2)-1):
+            middle_layers_ds1.append(nn.Conv2d(8, 8, kernel_size=3, padding=1))
+            middle_layers_ds1.append(nn.ReLU(inplace=True))
+        self.middle_convs_ds2 = nn.Sequential(*middle_layers_ds1)
 
         # self.iconv = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1)
 
@@ -71,7 +95,6 @@ class WGENVSR(nn.Module):
                 if m.bias is not None:
                     # bias_initializer='zeros'
                     nn.init.zeros_(m.bias)
-
     def forward(self, lqs):
         """
         Forward pass.
@@ -95,25 +118,42 @@ class WGENVSR(nn.Module):
         # Feature extraction
         x = self.relu(self.fea_conv(lqs_batch))
         feat_skip=x
-        
-        # Middle convolutions
-        x = self.middle_convs(x)
+
+        # Middle convolutions1
+        x = self.relu(self.middle_conv1(x))
+        x = self.middle_convs1(x)
+        x = x+feat_skip
+
+        # Middle convolutions ds
+        x_ds = self.relu(self.middle_conv_ds(x))
+        x_ds = self.middle_convs_ds2(x_ds)
+        x_ds = F.interpolate(x_ds, scale_factor=2, mode='nearest')
+
+        # Middle convs2
+        x = self.middle_convs2(x)
         x = x + feat_skip
-        
-        # T convs
-        tx = self.relu(self.tconv1(x))
-        tx = self.relu(self.tconv2(tx))
-        tx = self.relu(self.tconv3(tx))
+
+        x = torch.cat([x,x_ds],dim=1)
+
+        # Pre T convs
+        ptx = self.relu(self.ptconv2(x))
+        ptx = self.relu(self.ptconv3(ptx))
+        ptx = self.relu(self.ptconv4(ptx))
+        ptx = self.relu(self.ptconv5(ptx))
 
         # bT convs
-        btx = self.relu(self.btconv1(x))
-        btx = self.relu(self.btconv2(btx))
+        # btx = self.relu(self.btconv1(x))
+        btx = self.relu(self.btconv2(x))
         btx = self.relu(self.btconv3(btx))
+        btx = self.relu(self.btconv4(btx))
+        btx = self.relu(self.btconv5(btx))
 
-        # bT convs
-        atx = self.relu(self.atconv1(x))
-        atx = self.relu(self.atconv2(atx))
+        # aT convs
+        # atx = self.relu(self.atconv1(x))
+        atx = self.relu(self.atconv2(x))
         atx = self.relu(self.atconv3(atx))
+        atx = self.relu(self.atconv4(atx))
+        atx = self.relu(self.atconv5(atx))
 
 
         if self.training:
@@ -134,14 +174,9 @@ class WGENVSR(nn.Module):
             # Concatenate the zero_frame at the beginning with the shifted_frames
             shifted_atx = torch.cat((atx[1:], atx[t-1:t]), dim=0)
         
-
-        # Pre-shuffle convolutions
-        x = torch.cat((shifted_btx ,tx, image_skip, shifted_atx), dim=1)
-
+        x = torch.cat([shifted_btx,ptx,shifted_atx],dim=1)
 
         # Assert proper concatenation
-        
-        
         # if self.training:
         #     btx = btx.view(n* t, self.integrate_channels, h, w).contiguous()
         #     atx = atx.view(n* t, self.integrate_channels, h, w).contiguous()
@@ -168,6 +203,14 @@ class WGENVSR(nn.Module):
         #             assert torch.equal(f[-self.integrate_channels:], atx[i+1]), ('ass failed4')
 
 
+        # T convs
+        tx = self.relu(self.tconv1(x))
+        tx = self.relu(self.tconv2(tx))
+        tx = self.relu(self.tconv3(tx))
+
+
+        # Pre-shuffle convolutions
+        x = torch.cat((tx, image_skip), dim=1)
 
         x = self.relu(self.psconv(x))
 
@@ -186,24 +229,22 @@ class WGENVSR(nn.Module):
             preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
         # print("preds: ", preds.shape) #32, 256, 256, 30
         
-        return preds, None, None
-
+        return preds
+    
+    
 
 if __name__ == '__main__':
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = WGENVSR(mid_channels=28, num_blocks=4)
-    model.to(device)
+
+    model = WGEN40VSR(mid_channels=24, num_blocks=6)
     model.eval()
 
     # Make test run
-    # prediction = model(torch.randn(1, 180, 320, 30))
-    # print(prediction.shape)
+    prediction = model(torch.randn(1, 180, 320, 9))
+    print(prediction.shape)
 
-    # # Converting model to TFLite
+    # Converting model to TFLite
 
-    # sample_input = (torch.randn(1, 3, 180, 320),)
-
-    summary(model, (1, 3, 180, 320))
+    sample_input = (torch.randn(1, 180, 320, 30),)
 
     # edge_model = ai_edge_torch.convert(model.eval(), sample_input)
-    # edge_model.export("/content/MIA-VSR/assets/genvsr_wo_reshape_triplet8.tflite")
+    # edge_model.export("/content/MIA-VSR/assets/wgen38vsr.tflite")

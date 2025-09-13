@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 import math
-from basicsr.utils.registry import ARCH_REGISTRY
+# from basicsr.utils.registry import ARCH_REGISTRY
 # import ai_edge_torch
 
 
-@ARCH_REGISTRY.register()
-class GENVSR(nn.Module):
+# @ARCH_REGISTRY.register()
+class GENINFERVSR(nn.Module):
     def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3):
         """
         PyTorch implementation of the base7 TensorFlow model.
@@ -18,7 +18,7 @@ class GENVSR(nn.Module):
             m (int): Number of middle convolutional layers.
             out_channels (int): Number of channels in the output image.
         """
-        super(GENVSR, self).__init__()
+        super(GENINFERVSR, self).__init__()
         self.scale = scale
 
         # Feature extraction layer
@@ -66,15 +66,17 @@ class GENVSR(nn.Module):
         """
         #  print("lqs: ", lqs.shape) # 32, 64, 64, 30 --  1, 3, 720, 1280
 
-        is_train_mode = len(lqs.shape) == 4
-        if is_train_mode:
-            n, h, w, tc = lqs.shape
-            lqs = lqs.view(n, h, w, -1, 3).permute(0, 3, 4, 1, 2).contiguous()
+        # is_train_mode = len(lqs.shape) == 4
+        # if is_train_mode:
+        #     n, h, w, tc = lqs.shape
+        #     lqs = lqs.view(n, h, w, -1, 3).permute(0, 3, 4, 1, 2).contiguous()
         
-        n, t, c, h, w = lqs.shape
-        lqs_batch = lqs.view(n * t, c, h, w).contiguous() #320, 3, 64, 64
+        # n, t, c, h, w = lqs.shape
+        # lqs_batch = lqs.view(n * t, c, h, w).contiguous() #320, 3, 64, 64
 
         # print("lqs: ", lqs.shape) #32, 10, 3, 64, 64
+
+        lqs_batch = lqs.permute(0,3,1,2).view(10, 3, 180, 320).contiguous()
 
         image_skip = lqs_batch
         # Feature extraction
@@ -101,20 +103,22 @@ class GENVSR(nn.Module):
         # output_batch = torch.clamp(out, max = 255.)
 
 
-        # --- Output Shape Handling ---
-        _, c_out, h_out, w_out = output_batch.shape
-        preds = output_batch.view(n, t, c_out, h_out, w_out)
+        # # --- Output Shape Handling ---
+        # _, c_out, h_out, w_out = output_batch.shape
+        # preds = output_batch.view(n, t, c_out, h_out, w_out)
 
-        if is_train_mode:
-            preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
-        # print("preds: ", preds.shape) #32, 256, 256, 30
+        # if is_train_mode:
+        #     preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
+        # # print("preds: ", preds.shape) #32, 256, 256, 30
+
+        output_batch = output_batch.view(1, 30, 720, 1280).permute(0,2,3,1).contiguous()
         
-        return preds
+        return output_batch
 
 
 if __name__ == '__main__':
 
-    model = GENVSR(mid_channels=28, num_blocks=4)
+    model = GENINFERVSR(mid_channels=28, num_blocks=4)
     model.eval()
 
     # Make test run

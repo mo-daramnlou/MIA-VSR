@@ -3,9 +3,9 @@ import torch.nn as nn
 import math
 import torch.nn.functional as F
 import numpy as np
-from basicsr.utils.registry import ARCH_REGISTRY
+from collections import OrderedDict
+# from basicsr.utils.registry import ARCH_REGISTRY
 # import ai_edge_torch
-
 
 # EXPANDED Linear block
 class LinearBlock_e(nn.Module):
@@ -64,7 +64,6 @@ class LinearBlock_e(nn.Module):
         print("x: ",x.shape)
         return x
 
-
 # COLLAPSED Linear block
 class LinearBlock_c(nn.Module):
     """
@@ -114,13 +113,13 @@ class LinearBlock_c(nn.Module):
         # --- Residual Tensor ---
         # This tensor represents the identity connection (skip connection) that will be
         # arithmetically added to the generated weights.
-        residual = torch.zeros(self.out_filters, self.in_filters, self.ky, self.kx)
-        if self.in_filters == self.out_filters:
-            mid_kx = self.kx // 2
-            mid_ky = self.ky // 2
-            for i in range(self.out_filters):
-                residual[i, i, mid_ky, mid_kx] = 1.0
-        self.register_buffer('residual', residual)
+        # residual = torch.zeros(self.out_filters, self.in_filters, self.ky, self.kx)
+        # if self.in_filters == self.out_filters:
+        #     mid_kx = self.kx // 2
+        #     mid_ky = self.ky // 2
+        #     for i in range(self.out_filters):
+        #         residual[i, i, mid_ky, mid_kx] = 1.0
+        # self.register_buffer('residual', residual)
 
     def forward(self, inputs):
         # The 'self.training' flag is a built-in PyTorch attribute from nn.Module.
@@ -136,48 +135,47 @@ class LinearBlock_c(nn.Module):
         w_1x1 = self.conv_project.weight
         wt_tensor = F.conv2d(w_3x3.transpose(0, 1), w_1x1, padding='same').transpose(0, 1)
 
-        # 4. Add the residual (identity connection) directly to the weights.
-        wt_tensor = wt_tensor + self.residual
-
-        # 5. During inference, cache the collapsed weights
-        if not self.training:
-            self.collapsed_weights = nn.Parameter(wt_tensor, requires_grad=False)
-        # else:
-        #     # Use the pre-computed and cached weights during inference.
-        #     wt_tensor = self.collapsed_weights
-
         # --- Final Convolution ---
         return F.conv2d(inputs, wt_tensor, stride=1, padding="same")
 
 
-
-@ARCH_REGISTRY.register()
-class WGEN9VSR(nn.Module):
-    def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3, integrate_channels=28, expand_size=112):
+# @ARCH_REGISTRY.register()
+class WGEN35VSR(nn.Module):
+    def __init__(self, scale=4, in_channels=3, mid_channels=24, num_blocks=6, out_channels=3, integrate_channels=16, expand_size=120):
         """
-        PyTorch implementation of the base7 TensorFlow model, modified to use
-        collapsible linear blocks in the middle layers.
+        PyTorch implementation of the base7 TensorFlow model.
 
         Args:
             scale (int): The upsampling scale factor.
             in_channels (int): Number of channels in the input image.
-            mid_channels (int): Number of feature channels for the main path.
-            num_blocks (int): Number of middle collapsible blocks.
+            num_fea (int): Number of feature channels.
+            m (int): Number of middle convolutional layers.
             out_channels (int): Number of channels in the output image.
-            integrate_channels (int): Channels for temporal integration.
-            feature_size (int): The internal expansion dimension for collapsible blocks.
         """
-        super(WGEN9VSR, self).__init__()
+        super(WGEN35VSR, self).__init__()
         self.scale = scale
         self.integrate_channels=integrate_channels
 
         # Feature extraction layer
         self.fea_conv = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1)
 
-        # Replaced standard Conv2d layers with the efficient LinearBlock_c.
+        # Middle convolutional layers
         middle_layers = []
-        for _ in range(num_blocks):
+        for _ in range(int(num_blocks/2)):
             middle_layers.append(LinearBlock_c(
+                in_filters=mid_channels,
+                num_inner_layers=1, 
+                kernel_size=3,
+                padding='same',
+                out_filters=mid_channels,
+                feature_size=expand_size, 
+                mode='train' # The block handles train/eval switching internally
+            ))
+            middle_layers.append(nn.ReLU(inplace=True))
+        self.middle_convs1 = nn.Sequential(*middle_layers)
+        middle_layers1 = []
+        for _ in range(int(num_blocks/2)):
+            middle_layers1.append(LinearBlock_c(
                 in_filters=mid_channels,
                 num_inner_layers=1,  # As per the SESR paper for 3x3 blocks
                 kernel_size=3,
@@ -186,27 +184,41 @@ class WGEN9VSR(nn.Module):
                 feature_size=expand_size, # Internal expansion dimension
                 mode='train' # The block handles train/eval switching internally
             ))
-            middle_layers.append(nn.ReLU(inplace=True))
-        self.middle_convs = nn.Sequential(*middle_layers)
+            middle_layers1.append(nn.ReLU(inplace=True))
+        self.middle_convs2 = nn.Sequential(*middle_layers1)
 
         # Pre T convs
-        self.ptconv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1, groups= mid_channels)
-        self.ptconv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=1)
+        self.ptconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.ptconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.ptconv4 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.ptconv5 = nn.Conv2d(integrate_channels, mid_channels, kernel_size=1)
 
         # T convs
         self.tconv1 = nn.Conv2d(mid_channels + 2 * integrate_channels, out_channels * (scale**2), kernel_size=1)
-        self.tconv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
+        self.tconv2 = LinearBlock_c(
+                in_filters=out_channels * (scale**2),
+                num_inner_layers=1,  # As per the SESR paper for 3x3 blocks
+                kernel_size=3,
+                padding='same',
+                out_filters=out_channels * (scale**2),
+                feature_size=expand_size, # Internal expansion dimension
+                mode='train' # The block handles train/eval switching internally
+            )
         self.tconv3 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=1)
 
         # bT convs
         # self.btconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
-        self.btconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1, groups= integrate_channels)
-        self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+        self.btconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.btconv4 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.btconv5 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
 
         # aT convs
         # self.atconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
-        self.atconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1, groups= integrate_channels)
-        self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+        self.atconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
+        self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.atconv4 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=3, padding=1)
+        self.atconv5 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
 
         # Pre-shuffle convolutional layers
         self.psconv = nn.Conv2d(out_channels * (scale**2) + 3, out_channels * (scale**2), kernel_size=1)
@@ -226,15 +238,11 @@ class WGEN9VSR(nn.Module):
         """Initializes weights similar to the Keras version."""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                # print("init: ",m)
                 # glorot_normal initializer in Keras is Xavier normal in PyTorch
                 nn.init.xavier_normal_(m.weight)
                 if m.bias is not None:
                     # bias_initializer='zeros'
                     nn.init.zeros_(m.bias)
-            # else:
-                # print("pass: ",m)
-
     def forward(self, lqs):
         """
         Forward pass.
@@ -260,37 +268,49 @@ class WGEN9VSR(nn.Module):
         feat_skip=x
         
         # Middle convolutions
-        x = self.middle_convs(x)
-        print("middle_convs: ",x.shape)
+        x = self.middle_convs1(x)
+        x = self.middle_convs2(x+feat_skip)
         x = x + feat_skip
 
         # Pre T convs
         ptx = self.relu(self.ptconv2(x))
         ptx = self.relu(self.ptconv3(ptx))
+        ptx = self.relu(self.ptconv4(ptx))
+        ptx = self.relu(self.ptconv5(ptx))
 
         # bT convs
         # btx = self.relu(self.btconv1(x))
         btx = self.relu(self.btconv2(x))
         btx = self.relu(self.btconv3(btx))
+        btx = self.relu(self.btconv4(btx))
+        btx = self.relu(self.btconv5(btx))
 
         # aT convs
         # atx = self.relu(self.atconv1(x))
         atx = self.relu(self.atconv2(x))
         atx = self.relu(self.atconv3(atx))
+        atx = self.relu(self.atconv4(atx))
+        atx = self.relu(self.atconv5(atx))
 
-        # --- BUG FIX: Unify temporal shifting logic for train and eval ---
-        # The previous 'else' block handled evaluation incorrectly. This unified
-        # logic works for any batch size n >= 1 in both modes.
-        btx = btx.view(n, t, self.integrate_channels, h, w).contiguous()
-        # Concatenate the zero_frame at the beginning with the shifted_frames
-        shifted_btx = torch.cat((btx[:, 0:1, :, :, :], btx[:, :-1, :, :, :]), dim=1)
-        shifted_btx = shifted_btx.view(n * t, self.integrate_channels, h, w).contiguous()
 
-        atx = atx.view(n, t, self.integrate_channels, h, w).contiguous()
-        # Concatenate the zero_frame at the beginning with the shifted_frames
-        shifted_atx = torch.cat((atx[:, 1:, :, :, :], atx[:, t - 1:t, :, :, :]), dim=1)
-        shifted_atx = shifted_atx.view(n * t, self.integrate_channels, h, w).contiguous()
+        if self.training:
+            btx = btx.view(n, t, self.integrate_channels, h, w).contiguous()
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_btx = torch.cat((btx[:,0:1,:,:,:], btx[:,:-1,:,:,:]), dim=1)
+            shifted_btx = shifted_btx.view(n*t, self.integrate_channels, h, w).contiguous()
 
+            atx = atx.view(n, t, self.integrate_channels, h, w).contiguous()
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_atx = torch.cat((atx[:,1:,:,:,:], atx[:,t-1:t,:,:,:]), dim=1)
+            shifted_atx = shifted_atx.view(n*t, self.integrate_channels, h, w).contiguous()
+
+        else:
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_btx = torch.cat((btx[0:1], btx[:-1]), dim=0)
+
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_atx = torch.cat((atx[1:], atx[t-1:t]), dim=0)
+        
         x = torch.cat([shifted_btx,ptx,shifted_atx],dim=1)
 
         # Assert proper concatenation
@@ -308,10 +328,6 @@ class WGEN9VSR(nn.Module):
         #         else:
         #             assert torch.equal(f[-self.integrate_channels:], atx[i+1]), ('ass failed4')
         # else:
-        #     # This assertion block might be slow during validation.
-        #     # It can be commented out for performance if confident in the logic.
-        #     btx = btx.view(n* t, self.integrate_channels, h, w).contiguous()
-        #     atx = atx.view(n* t, self.integrate_channels, h, w).contiguous()
         #     for i,f in enumerate(x):
         #         if i == 0:
         #             assert torch.equal(f[0:self.integrate_channels], btx[i]), ('ass failed1')
@@ -340,7 +356,6 @@ class WGEN9VSR(nn.Module):
         
         # Clip the output to a valid image range
         # output_batch = torch.clamp(output_batch, max = 255.)
-        # output_batch = torch.clamp(output_batch, 0., 1.)
 
 
         # --- Output Shape Handling ---
@@ -351,13 +366,18 @@ class WGEN9VSR(nn.Module):
             preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
         # print("preds: ", preds.shape) #32, 256, 256, 30
         
-        return preds, None, None
-
+        return preds
+    
 
 if __name__ == '__main__':
 
-    model = WGEN9VSR(mid_channels=28, num_blocks=4)
+    # trained_model_path = '/content/net_g_30000.pth'
+    # infer_model_path = '/content/net_g_30000_infer.pth'
+    # convert_weights(trained_model_path, infer_model_path)
+
+    model = WGEN35VSR(mid_channels=24, num_blocks=6)
     model.eval()
+    model.load_state_dict(torch.load("/content/net_g_30000_infer.pth"), strict=True)
 
     # Make test run
     prediction = model(torch.randn(1, 180, 320, 9))
@@ -367,17 +387,5 @@ if __name__ == '__main__':
 
     sample_input = (torch.randn(1, 180, 320, 30),)
 
-    # # edge_model = ai_edge_torch.convert(model.eval(), sample_input)
-    # # edge_model.export("/content/MIA-VSR/assets/genvsr_wo_reshape_triplet8.tflite")
-
-    # model.train() # Set to training mode to test collapsible block logic
-
-    # # Make test run
-    # # Example for training mode shape
-    # prediction, _, _ = model(torch.randn(2, 64, 64, 30)) # N, H, W, T*C
-    # print(prediction.shape)
-
-    # model.eval() # Set to evaluation mode
-    # # Example for inference mode shape
-    # prediction, _, _ = model(torch.randn(1, 10, 3, 180, 320)) # N, T, C, H, W
-    # print(prediction.shape)
+    # edge_model = ai_edge_torch.convert(model.eval(), sample_input)
+    # edge_model.export("/content/MIA-VSR/assets/wgen30vsri2.tflite")

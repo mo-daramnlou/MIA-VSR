@@ -63,16 +63,17 @@ datasets:
 
 # network structures
 network_g:
-  type: WGEN10VSR
+  type: WGEN9VSR
   mid_channels: 28
   num_blocks: 4
+  expand_size: 112
 
 # path
 path:
   pretrain_network_g: ~
   strict_load_g: true
-  resume_state: ~
-  # resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4128_EFFVSR_mix_precision_REDS_600K_N1/training_states/15.state"
+  # resume_state: ~
+  resume_state: "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4133_WGENVSR_mix_precision_REDS_600K_N1/training_states/25000.state"
 train:
   ema_decay: 0.999
   optim_g:
@@ -114,7 +115,7 @@ train:
 
 # validation settings
 val:
-  val_freq: 200
+  val_freq: 20
   save_img: false
 
   metrics:
@@ -129,7 +130,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 200
+  print_freq: 10
   save_checkpoint_freq: 5000
   use_tb_logger: true
   wandb:

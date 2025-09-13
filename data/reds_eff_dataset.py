@@ -98,6 +98,8 @@ class REDSEffDataset(data.Dataset):
         self.feature_hdf5 = None
         self.kd_enabled = opt['kd_enabled']
 
+        self.each_clip_frame_number = 30 
+
     def __getitem__(self, index):
         # print("getitem REDSRecurrentDistillationDataset")
         if self.file_client is None:
@@ -116,8 +118,8 @@ class REDSEffDataset(data.Dataset):
 
         # ensure not exceeding the borders
         start_frame_idx = int(frame_name)
-        if start_frame_idx > 100 - self.num_frame * interval:
-            start_frame_idx = random.randint(0, 100 - self.num_frame * interval)
+        if start_frame_idx > self.each_clip_frame_number - self.num_frame * interval:
+            start_frame_idx = random.randint(0, self.each_clip_frame_number - self.num_frame * interval)
         end_frame_idx = start_frame_idx + self.num_frame * interval
 
         neighbor_list = list(range(start_frame_idx, end_frame_idx, interval))

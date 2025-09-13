@@ -6,7 +6,7 @@ from basicsr.utils.registry import ARCH_REGISTRY
 
 
 @ARCH_REGISTRY.register()
-class WGEN10VSR(nn.Module):
+class WGEN12VSR(nn.Module):
     def __init__(self, scale=4, in_channels=3, mid_channels=28, num_blocks=4, out_channels=3, integrate_channels=28):
         """
         PyTorch implementation of the base7 TensorFlow model.
@@ -18,9 +18,10 @@ class WGEN10VSR(nn.Module):
             m (int): Number of middle convolutional layers.
             out_channels (int): Number of channels in the output image.
         """
-        super(WGEN10VSR, self).__init__()
+        super(WGEN12VSR, self).__init__()
         self.scale = scale
         self.integrate_channels=integrate_channels
+        self.mid_channels=mid_channels
 
         # Feature extraction layer
         self.fea_conv = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1)
@@ -33,23 +34,24 @@ class WGEN10VSR(nn.Module):
         self.middle_convs = nn.Sequential(*middle_layers)
 
         # Pre T convs
-        self.ptconv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1, groups= mid_channels)
-        self.ptconv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=1)
+        self.ptconv = nn.Conv2d(3 * mid_channels, mid_channels, kernel_size=3, padding=1, groups= mid_channels)
+        # self.ptconv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1, groups= mid_channels)
+        # self.ptconv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=1)
 
         # T convs
-        self.tconv1 = nn.Conv2d(mid_channels + 4 * integrate_channels, out_channels * (scale**2), kernel_size=1)
+        self.tconv1 = nn.Conv2d(mid_channels , out_channels * (scale**2), kernel_size=1)
         self.tconv2 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=3, padding=1)
         self.tconv3 = nn.Conv2d(out_channels * (scale**2), out_channels * (scale**2), kernel_size=1)
 
         # bT convs
         # self.btconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
-        self.btconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1, groups= integrate_channels)
-        self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+        # self.btconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1, groups= integrate_channels)
+        # self.btconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
 
         # aT convs
         # self.atconv1 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=1)
-        self.atconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1, groups= integrate_channels)
-        self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
+        # self.atconv2 = nn.Conv2d(mid_channels, integrate_channels, kernel_size=3, padding=1, groups= integrate_channels)
+        # self.atconv3 = nn.Conv2d(integrate_channels, integrate_channels, kernel_size=1)
 
         # Pre-shuffle convolutional layers
         self.psconv = nn.Conv2d(out_channels * (scale**2) + 3, out_channels * (scale**2), kernel_size=1)
@@ -69,15 +71,11 @@ class WGEN10VSR(nn.Module):
         """Initializes weights similar to the Keras version."""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                # print("init: ",m)
                 # glorot_normal initializer in Keras is Xavier normal in PyTorch
                 nn.init.xavier_normal_(m.weight)
                 if m.bias is not None:
                     # bias_initializer='zeros'
                     nn.init.zeros_(m.bias)
-            # else:
-            #     print("pass: ",m)
-
     def forward(self, lqs):
         """
         Forward pass.
@@ -106,70 +104,91 @@ class WGEN10VSR(nn.Module):
         x = self.middle_convs(x)
         x = x + feat_skip
 
-        # Pre T convs
-        ptx = self.relu(self.ptconv2(x))
-        ptx = self.relu(self.ptconv3(ptx))
-
-        # bT convs
-        # btx = self.relu(self.btconv1(x))
-        btx = self.relu(self.btconv2(x))
-        btx = self.relu(self.btconv3(btx))
-
-        # aT convs
-        # atx = self.relu(self.atconv1(x))
-        atx = self.relu(self.atconv2(x))
-        atx = self.relu(self.atconv3(atx))
-
-
         if self.training:
-            btx = btx.view(n, t, self.integrate_channels, h, w).contiguous()
-            # Concatenate the zero_frame at the beginning with the shifted_frames
-            shifted_btx = torch.cat((btx[:,0:1,:,:,:], btx[:,:-1,:,:,:]), dim=1)
-            shifted_btx = shifted_btx.view(n*t, self.integrate_channels, h, w).contiguous()
-            
-            shifted_btx2 = torch.cat((btx[:,0:1,:,:,:], btx[:,0:1,:,:,:], btx[:,:-2,:,:,:]), dim=1)
-            shifted_btx2 = shifted_btx2.view(n*t, self.integrate_channels, h, w).contiguous()
+            x_view = x.view(n, t, self.mid_channels, h, w).contiguous()
 
-            atx = atx.view(n, t, self.integrate_channels, h, w).contiguous()
             # Concatenate the zero_frame at the beginning with the shifted_frames
-            shifted_atx = torch.cat((atx[:,1:,:,:,:], atx[:,t-1:t,:,:,:]), dim=1)
-            shifted_atx = shifted_atx.view(n*t, self.integrate_channels, h, w).contiguous()
+            shifted_bx = torch.cat((x_view[:,0:1,:,:,:], x_view[:,:-1,:,:,:]), dim=1)
+            shifted_bx = shifted_bx.view(n*t, self.mid_channels, h, w).contiguous()
 
-            shifted_atx2 = torch.cat((atx[:,2:,:,:,:], atx[:,t-1:t,:,:,:], atx[:,t-1:t,:,:,:]), dim=1)
-            shifted_atx2 = shifted_atx2.view(n*t, self.integrate_channels, h, w).contiguous()
+            # Concatenate the zero_frame at the beginning with the shifted_frames
+            shifted_ax = torch.cat((x_view[:,1:,:,:,:], x_view[:,t-1:t,:,:,:]), dim=1)
+            shifted_ax = shifted_ax.view(n*t, self.mid_channels, h, w).contiguous()
 
         else:
             # Concatenate the zero_frame at the beginning with the shifted_frames
-            shifted_btx = torch.cat((btx[0:1], btx[:-1]), dim=0)
-            shifted_btx2 = torch.cat((btx[0:1], btx[0:1], btx[:-2]), dim=0)
+            shifted_bx = torch.cat((x[0:1], x[:-1]), dim=0)
 
             # Concatenate the zero_frame at the beginning with the shifted_frames
-            shifted_atx = torch.cat((atx[1:], atx[t-1:t]), dim=0)
-            shifted_atx2 = torch.cat((atx[2:], atx[t-1:t], atx[t-1:t]), dim=0)
+            shifted_ax = torch.cat((x[1:], x[t-1:t]), dim=0)
         
-        x = torch.cat([shifted_btx2,shifted_btx,ptx,shifted_atx,shifted_atx2],dim=1)
 
-        # # Assert proper concatenation
+        # Pre-shuffle convolutions
         # if self.training:
-        #     btx = btx.view(n* t, self.integrate_channels, h, w).contiguous()
-        #     atx = atx.view(n* t, self.integrate_channels, h, w).contiguous()
-
-        # for i,f in enumerate(x):
-        #     if i%t == 0 or i%t == 1:
-        #         assert torch.equal(f[0:self.integrate_channels], btx[i-(i%t)]), ('ass failed1')
-        #         assert torch.equal(f[self.integrate_channels:2*self.integrate_channels], btx[i-(i%t)]), ('ass failed1')
-        #     else:
-        #         assert torch.equal(f[0:self.integrate_channels], btx[i-2]), ('ass failed2')
-        #         assert torch.equal(f[self.integrate_channels:2*self.integrate_channels], btx[i-1]), ('ass failed2')
-
-        #     if i%t == t-1 or i%t == t-2:
-        #         assert torch.equal(f[-self.integrate_channels:], atx[i+(t-(i%t)-1)]), ('ass failed3')
-        #         assert torch.equal(f[-2*self.integrate_channels:-self.integrate_channels], atx[i+(t-(i%t)-1)]), ('ass failed3')
-        #     else:
-        #         assert torch.equal(f[-self.integrate_channels:], atx[i+2]), ('ass failed4')
-        #         assert torch.equal(f[-2*self.integrate_channels:-self.integrate_channels], atx[i+1]), ('ass failed4')
 
 
+        # combined = torch.cat([shifted_bx, x, shifted_ax], dim=1)
+
+        # grouped = combined.view(n*t, 3, self.mid_channels, h, w)
+        # transposed = grouped.permute(0,2,1,3,4)
+        # conx=transposed.contiguous().view(n*t, 3 * self.mid_channels, h, w)
+
+        # conx = torch.cat((shifted_bx ,x, shifted_ax), dim=2)
+        # conx = conx.view(n*t, 3 * self.mid_channels, h, w)
+        # else:
+        #     conx = torch.cat((shifted_bx.permute(1,0,2,3) ,x.permute(1,0,2,3), shifted_ax.permute(1,0,2,3)), dim=1).reshape(t, 3 * self.mid_channels, h, w)
+        #     print(conx.shape)
+
+        # stacked = torch.stack([shifted_bx ,x, shifted_ax], dim=2)
+        # # 2. Use .view() to flatten the C and the new dimension together.
+        # #    This is a metadata-only operation and is virtually free.
+        # #    The -1 tells PyTorch to automatically calculate the new channel size (C*3).
+        # #    Shape changes from (N, C, 3, H, W) -> (N, C*3, H, W)
+        # conx = stacked.view(n*t, -1, h, w)
+
+        # permuted_list = [t.permute(0, 2, 3, 1).contiguous() for t in [shifted_bx ,x, shifted_ax]]
+        # # 2. Concatenate along the LAST dimension (the channel dimension in NHWC).
+        # #    This is extremely fast as it just appends memory blocks.
+        # #    The final shape is (N, H, W, C*3).
+        # interleaved_nhwc = torch.cat(permuted_list, dim=3)
+        # # 3. (Optional) Permute back to NCHW if subsequent layers in your PyTorch
+        # #    model require it. For TFLite conversion, you can often leave it in NHWC.
+        # conx = interleaved_nhwc.permute(0, 3, 1, 2)
+
+        # permuted_list = [t.permute(0, 2, 3, 1) for t in [shifted_bx ,x, shifted_ax]]
+        # # 2. Stack the NHWC tensors along a new LAST dimension.
+        # #    This groups the corresponding channel values for each pixel.
+        # #    Shape changes from (N, H, W, C) -> (N, H, W, C, 3)
+        # stacked = torch.stack(permuted_list, dim=4)
+        # # 3. View the result to flatten the last two dimensions (C and 3).
+        # #    This merges the channels in an interleaved order.
+        # #    Shape changes from (N, H, W, C, 3) -> (N, H, W, C*3)
+        # conx = stacked.view(n*t, h, w, 3*self.mid_channels).permute(0, 3, 1, 2)
+
+        conx = torch.cat((shifted_bx ,x, shifted_ax), dim=1)
+
+
+        # print(conx.shape)
+        # Assert proper concatenation
+        # if self.training:
+        x_view = x.view(n* t, self.mid_channels, h, w).contiguous()
+        for i,f in enumerate(conx):
+            for j, ch in enumerate(f):
+                if j%3==0:
+                    if i%t == 0:
+                        assert torch.equal(f[j], x_view[i,int(j/3)]), ('ass failed1')
+                    else: 
+                        assert torch.equal(f[j], x_view[i-1,int(j/3)]), ('ass faile2')
+                elif j%3==1:
+                    assert torch.equal(f[j], x_view[i,int(j/3)]), ('ass failed3')
+                else:
+                    if i%t == t-1:
+                        assert torch.equal(f[j], x_view[i,int(j/3)]), ('ass failed4')
+                    else:
+                        assert torch.equal(f[j], x_view[i+1,int(j/3)]), ('ass failed5')
+
+
+        x = self.relu(self.ptconv(conx))
         # T convs
         tx = self.relu(self.tconv1(x))
         tx = self.relu(self.tconv2(tx))
@@ -196,17 +215,16 @@ class WGEN10VSR(nn.Module):
             preds = preds.permute(0, 3, 4, 1, 2).contiguous().view(n, h_out, w_out, t * c_out)
         # print("preds: ", preds.shape) #32, 256, 256, 30
         
-        return preds, None, None
-
+        return preds
 
 
 if __name__ == '__main__':
 
-    model = WGEN10VSR(mid_channels=28, num_blocks=4)
-    model.train()
+    model = WGEN12VSR(mid_channels=28, num_blocks=4)
+    model.eval()
 
     # Make test run
-    prediction = model(torch.randn(4, 180, 320, 30))
+    prediction = model(torch.randn(1, 180, 320, 30))
     print(prediction.shape)
 
     # Converting model to TFLite
