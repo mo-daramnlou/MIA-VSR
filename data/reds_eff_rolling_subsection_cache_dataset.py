@@ -65,6 +65,11 @@ class REDSEffRollingSubsectionCacheDataset(data.Dataset):
         
         self.interval_list = opt.get('interval_list', [1])
         self.random_reverse = opt.get('random_reverse', False)
+
+        # --- OPTIMIZATION: Open LMDB environments once and keep them open ---
+        self.env_lq = lmdb.open(str(self.lq_root), readonly=True, lock=False, readahead=False, meminit=False)
+        self.env_gt = lmdb.open(str(self.gt_root), readonly=True, lock=False, readahead=False, meminit=False)
+
         logger.info(f'Dataset initialized with {len(self.all_clip_names)} total clips. Ready to load subsections on-demand.')
 
     def clear_cache(self):
@@ -82,25 +87,32 @@ class REDSEffRollingSubsectionCacheDataset(data.Dataset):
         logger = get_root_logger()
         logger.info(f"----------- Loading {len(clips_to_load)} new random subsections into VRAM... -----------")
         
-        env_lq = lmdb.open(str(self.lq_root), readonly=True, lock=False, readahead=False, meminit=False)
-        env_gt = lmdb.open(str(self.gt_root), readonly=True, lock=False, readahead=False, meminit=False)
-        
         cached_sections = {} # Store the random start frame for each loaded clip
 
-        with env_lq.begin(write=False) as txn_lq, env_gt.begin(write=False) as txn_gt:
+        with self.env_lq.begin(write=False) as txn_lq, self.env_gt.begin(write=False) as txn_gt:
+            cursor_lq = txn_lq.cursor()
+            cursor_gt = txn_gt.cursor()
+
             for clip in clips_to_load:
-                # --- NEW: Select a random 30-frame section from the 100-frame clip ---
                 section_start = random.randint(0, self.total_frames_per_clip - self.cache_section_frames)
                 cached_sections[clip] = section_start
 
-                for frame_idx in range(section_start, section_start + self.cache_section_frames):
-                    key = f'{clip}/{frame_idx:08d}'
-                    lq_img_bytes, gt_img_bytes = txn_lq.get(key.encode('ascii')), txn_gt.get(key.encode('ascii'))
+                start_key = f'{clip}/{section_start:08d}'.encode('ascii')
+                if not cursor_lq.set_key(start_key) or not cursor_gt.set_key(start_key):
+                    logger.warning(f"Could not find start key {start_key.decode('ascii')} for clip {clip}. Skipping.")
+                    continue
+
+                for i in range(self.cache_section_frames):
+                    key_bytes, lq_img_bytes = cursor_lq.item()
+                    _, gt_img_bytes = cursor_gt.item()
                     
-                    if lq_img_bytes and gt_img_bytes:
-                        lq_img, gt_img = imfrombytes(lq_img_bytes, float32=True), imfrombytes(gt_img_bytes, float32=True)
-                        self.vram_cache_lq[key] = torch.from_numpy(lq_img).permute(2, 0, 1).to(self.device)
-                        self.vram_cache_gt[key] = torch.from_numpy(gt_img).permute(2, 0, 1).to(self.device)
+                    key_str = key_bytes.decode('ascii')
+                    lq_img, gt_img = imfrombytes(lq_img_bytes, float32=True), imfrombytes(gt_img_bytes, float32=True)
+                    self.vram_cache_lq[key_str] = torch.from_numpy(lq_img).permute(2, 0, 1).to(self.device)
+                    self.vram_cache_gt[key_str] = torch.from_numpy(gt_img).permute(2, 0, 1).to(self.device)
+                    
+                    cursor_lq.next()
+                    cursor_gt.next()
 
         # --- NEW: Build valid sequences based on the loaded subsections ---
         interval = max(self.interval_list)
