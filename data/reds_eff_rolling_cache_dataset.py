@@ -39,10 +39,12 @@ class REDSEffRollingCacheDataset(data.Dataset):
         self.gt_root, self.lq_root = Path(opt['dataroot_gt']), Path(opt['dataroot_lq'])
         self.num_frame = opt['num_frame']
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.frames_per_clip = opt.get('frames_per_clip', 30)
         
-        logger = get_root_logger()
+        # --- NEW: Parameters for subsection sampling ---
+        self.total_frames_per_clip = opt.get('total_frames_per_clip', 100)
+        self.cache_section_frames = opt.get('cache_section_frames', 30)
 
+        logger = get_root_logger()
         all_keys = []
         with open(opt['meta_info_file'], 'r') as fin:
             for line in fin:
@@ -82,27 +84,41 @@ class REDSEffRollingCacheDataset(data.Dataset):
         
         env_lq = lmdb.open(str(self.lq_root), readonly=True, lock=False, readahead=False, meminit=False)
         env_gt = lmdb.open(str(self.gt_root), readonly=True, lock=False, readahead=False, meminit=False)
-        
-        with env_lq.begin(write=False) as txn_lq, env_gt.begin(write=False) as txn_gt:
-            for clip in clips_to_load:
-                for frame_idx in range(self.frames_per_clip):
-                    key = f'{clip}/{frame_idx:08d}'
-                    lq_img_bytes, gt_img_bytes = txn_lq.get(key.encode('ascii')), txn_gt.get(key.encode('ascii'))
-                    
-                    if lq_img_bytes and gt_img_bytes:
-                        lq_img, gt_img = imfrombytes(lq_img_bytes, float32=True), imfrombytes(gt_img_bytes, float32=True)
-                        self.vram_cache_lq[key] = torch.from_numpy(lq_img).permute(2, 0, 1).to(self.device)
-                        self.vram_cache_gt[key] = torch.from_numpy(gt_img).permute(2, 0, 1).to(self.device)
 
-        # *** FIX: Rebuild the list of valid sequences based ONLY on the clips that are currently in the cache. ***
+        cached_sections = {} # Store the random start frame for each loaded clip
+
+        with env_lq.begin(write=False) as txn_lq, env_gt.begin(write=False) as txn_gt:
+            cursor_lq = txn_lq.cursor()
+            cursor_gt = txn_gt.cursor()
+
+            for clip in clips_to_load:
+                section_start = random.randint(0, self.total_frames_per_clip - self.cache_section_frames)
+                cached_sections[clip] = section_start
+
+                start_key = f'{clip}/{section_start:08d}'.encode('ascii')
+                if not cursor_lq.set_key(start_key) or not cursor_gt.set_key(start_key):
+                    logger.warning(f"Could not find start key {start_key.decode('ascii')} for clip {clip}. Skipping.")
+                    continue
+
+                for i in range(self.cache_section_frames):
+                    key_bytes, lq_img_bytes = cursor_lq.item()
+                    _, gt_img_bytes = cursor_gt.item()
+                    
+                    key_str = key_bytes.decode('ascii')
+                    lq_img, gt_img = imfrombytes(lq_img_bytes, float32=True), imfrombytes(gt_img_bytes, float32=True)
+                    self.vram_cache_lq[key_str] = torch.from_numpy(lq_img).permute(2, 0, 1).to(self.device)
+                    self.vram_cache_gt[key_str] = torch.from_numpy(gt_img).permute(2, 0, 1).to(self.device)
+                    
+                    cursor_lq.next()
+                    cursor_gt.next()
+
+        # --- NEW: Build valid sequences based on the loaded subsections ---
         interval = max(self.interval_list)
-        for clip_name in clips_to_load:
-            for start_frame_idx in range(self.frames_per_clip):
-                if start_frame_idx <= self.frames_per_clip - self.num_frame * interval:
-                    # Ensure all frames for this sequence are actually in the cache
-                    first_frame_key = f'{clip_name}/{start_frame_idx:08d}'
-                    if first_frame_key in self.vram_cache_lq:
-                        self.valid_sequences.append((clip_name, start_frame_idx))
+        for clip_name, section_start in cached_sections.items():
+            # The last possible start frame for a sequence within the subsection
+            last_possible_start = (section_start + self.cache_section_frames) - (self.num_frame * interval)
+            for start_frame_idx in range(section_start, last_possible_start + 1):
+                self.valid_sequences.append((clip_name, start_frame_idx))
 
         logger.info(f"----------- VRAM cache loaded. {len(self.valid_sequences)} valid sequences available. -----------")
 
@@ -131,9 +147,8 @@ class REDSEffRollingCacheDataset(data.Dataset):
                                self.opt['use_rot'] and random.random() < 0.5)
 
         img_lqs, img_gts = gpu_augment(img_lqs, hflip, vflip, rot90), gpu_augment(img_gts, hflip, vflip, rot90)
-        img_lqs, img_gts = (img_lqs.reshape(-1, *img_lqs.shape[2:]).permute(1, 2, 0),
-                            img_gts.reshape(-1, *img_gts.shape[2:]).permute(1, 2, 0))
-
+        img_lqs = img_lqs.reshape(-1, img_lqs.shape[2], img_lqs.shape[3]).permute(1, 2, 0)
+        img_gts = img_gts.reshape(-1, img_gts.shape[2], img_gts.shape[3]).permute(1, 2, 0)
         return {'lq': img_lqs, 'gt': img_gts, 'key': f'{clip_name}/{start_frame_idx:08d}'}
 
     def __len__(self):

@@ -36,7 +36,7 @@ def clean_state_dict_for_resume(state_dict):
 def main(model_path):
     # -------------------- Configurations -------------------- #
     device = torch.device('cuda:0')
-    save_imgs = False
+    save_imgs = True
     measure_inference_time = False
     test_y_channel = False
     crop_border = 0
@@ -59,7 +59,7 @@ def main(model_path):
 
     # set up the models
     # model = BIVSR()
-    model = WGEN9VSR(mid_channels=28, num_blocks=4)
+    model = GENVSR(mid_channels=28, num_blocks=4)
     model.eval()
     # model.load_state_dict(clean_state_dict_for_resume(torch.load(model_path)['params']), strict=True)
     model = model.to(device)
@@ -67,8 +67,8 @@ def main(model_path):
     if measure_inference_time:
         # lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/lr'
         # gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/gt'
-        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp_bicubic/val/val_sharp_bicubic/X4'
-        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/data/val_sharp/val/val_sharp'
+        lr_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp_bicubic3/val/val_sharp_bicubic/X4'
+        gt_folder = '/home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp3/val/val_sharp'
         save_folder = f'/home/mohammad/Documents/uni/deeplearning/FinalProject/Logs/Inference Time/data/res{time.time()}'
         # -------------------- Warm-up for stable measurements -------------------- #
         logger.info('Warming up GPU for 10 iterations...')
@@ -131,7 +131,7 @@ def main(model_path):
             if measure_inference_time:
                 start_event.record()
 
-            outputs, _, anchor_feats = model(imgs_lq)
+            outputs = model(imgs_lq)
             print("outputs: ",outputs.shape)
 
             if  measure_inference_time:
@@ -221,6 +221,7 @@ def normalize_tensor(tensor):
 
 if __name__ == '__main__':
     print("hello")
-    model_paths = ["/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4133_WGENVSR_mix_precision_REDS_600K_N1/models/net_g_25000.pth"]
+    model_paths = ["/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/assets/wgen67i.pth",
+                   "/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/assets/geni.pth"]
     for model_path in model_paths:
         main(model_path)

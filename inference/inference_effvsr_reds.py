@@ -6,13 +6,7 @@ import os.path as osp
 import torch
 import torch.nn.functional as F
 import h5py
-from archs.mia_vsr_arch import MIAVSR
-from archs.eff_vsr_arch import EFFVSR
-from archs.gen_vsr_arch import GENVSR
-from archs.wgen_vsr_arch import WGENVSR
-from archs.rgen2_vsr_infer_arch import RGEN2INFERVSR
-from archs.rgen3_vsr_infer_arch import RGEN3INFERVSR
-from archs.bi_vsr_arch import BIVSR
+from archs.wgen67_vsr_arch import WGEN67VSR 
 from basicsr.data.data_util import read_img_seq
 from basicsr.metrics import psnr_ssim
 from basicsr.utils import get_root_logger, get_time_str, imwrite, tensor2img
@@ -24,13 +18,13 @@ def main():
     # -------------------- Configurations -------------------- #
     device = torch.device('cuda:0')
     save_imgs = True
-    measure_inference_time = True
+    measure_inference_time = False
     test_y_channel = False
     crop_border = 0
     # set suitable value to make sure cuda not out of memory
     # interval = 30
     
-    model_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/experiments/4136_RGENVSR_mix_precision_REDS_1K_N1/models/net_g_200.pth'
+    model_path = '/home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/assets/net_g_latest.pth'
     # test data
     test_name = f'sotareds'
 
@@ -47,7 +41,7 @@ def main():
 
     # set up the models
     # model = BIVSR()
-    model = RGEN3INFERVSR(mid_channels=28, num_blocks=4)
+    model = WGEN67VSR(mid_channels=24, num_blocks=4)
     model.load_state_dict(torch.load(model_path)['params'], strict=True)
     model.eval()
     model = model.to(device)

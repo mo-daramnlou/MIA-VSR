@@ -32,6 +32,7 @@ def init_tb_loggers(opt):
 def create_train_val_dataloader(opt, logger):
     # --- MODIFIED TO USE NEW SUBSECTION LOGIC FOR EPOCH ESTIMATION ---
     train_loader, val_loaders = None, []
+    train_set = None
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)
@@ -77,7 +78,7 @@ def create_train_val_dataloader(opt, logger):
         else:
             raise ValueError(f'Dataset phase {phase} is not recognized.')
 
-    return train_loader, train_sampler, val_loaders, total_epochs, total_iters
+    return train_loader, train_sampler, val_loaders, total_epochs, total_iters, train_set
 
 
 def load_resume_state(opt):
@@ -116,8 +117,8 @@ def train_pipeline(root_path):
     logger.info(get_env_info())
     logger.info(dict2str(opt))
     tb_logger = init_tb_loggers(opt)
-    _, _, val_loaders, total_epochs, total_iters = create_train_val_dataloader(opt, logger)
-    train_set = build_dataset(opt['datasets']['train'])
+    _, _, val_loaders, total_epochs, total_iters, train_set = create_train_val_dataloader(opt, logger)
+    # train_set = build_dataset(opt['datasets']['train'])
     model = build_model(opt)
     if resume_state:
         model.resume_training(resume_state)
