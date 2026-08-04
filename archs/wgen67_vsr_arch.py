@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import math
 import torch.nn.functional as F
-# from basicsr.utils.registry import ARCH_REGISTRY
+from basicsr.utils.registry import ARCH_REGISTRY
 # import ai_edge_torch
 
-# @ARCH_REGISTRY.register()
+@ARCH_REGISTRY.register()
 class WGEN67VSR(nn.Module):
     def __init__(self, scale=4, in_channels=3, mid_channels=24, num_blocks=4, out_channels=3, integrate_channels=16):
         """

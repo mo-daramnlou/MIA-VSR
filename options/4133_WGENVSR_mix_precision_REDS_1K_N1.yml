@@ -1,4 +1,4 @@
-# GENERATE TIME: Sat Sep 13 19:52:12 2025
+# GENERATE TIME: Mon Sep 29 08:29:06 2025
 # CMD:
 # recurrent_rolling_mix_precision_train.py -opt /content/MIA-VSR/options/4133_WGENVSR_mix_precision_REDS_1K_N1.yml --launcher pytorch
 
@@ -14,13 +14,13 @@ datasets:
   train:
     name: REDS
     # type: REDSRecurrentDistillationDataset
-    type: REDSEffRollingCacheDataset
+    type: REDSEffRollingSubsectionCacheDataset
     # dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp/train/train_sharp
     # dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic/train/train_sharp_bicubic/X4
     #meta_info_file: /home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/meta_info_REDS_GT_30.txt
     dataroot_gt: /content/train_sharp.lmdb
     dataroot_lq: /content/train_sharp_bicubic.lmdb
-    meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT_24030.txt
+    meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT.txt
     #dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_with_val3.lmdb
     #dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic_with_val3.lmdb
     val_partition: REDS4  # set to 'official' when use the official validation partition
@@ -53,7 +53,8 @@ datasets:
     clear_cpu_ram: true
 
     num_clips_per_epoch: 20 
-    frames_per_clip: 30
+    frames_per_clip: 100
+    cache_section_frames: 30
 
   val:
     name: REDS4
@@ -71,9 +72,9 @@ datasets:
 
 # network structures
 network_g:
-  type: WGEN20VSR
+  type: WGEN67VSR
   mid_channels: 24
-  num_blocks: 6
+  num_blocks: 4
 
 # path
 path:
