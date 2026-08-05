@@ -20,7 +20,7 @@ datasets:
     #meta_info_file: /home/mohammad/Documents/uni/deeplearning/FinalProject/MIA-VSR/data/meta_info_REDS_GT_30.txt
     dataroot_gt: /content/train_sharp.lmdb
     dataroot_lq: /content/train_sharp_bicubic.lmdb
-    meta_info_file: /content/MIA-VSR/data/meta_info_REDS_GT.txt
+    meta_info_file: /kaggle/working/MIA-VSR/data/meta_info_REDS_GT.txt
     #dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_with_val3.lmdb
     #dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/train_sharp_bicubic_with_val3.lmdb
     val_partition: REDS4  # set to 'official' when use the official validation partition
@@ -61,8 +61,8 @@ datasets:
     type: VideoRecurrentTestDataset
     #dataroot_gt: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp/val/val_sharp
     #dataroot_lq: /home/mohammad/Documents/uni/deeplearning/FinalProject/val_sharp_bicubic/val/val_sharp_bicubic/X4
-    dataroot_gt: /content/val_sharp/val/val_sharp
-    dataroot_lq: /content/val_sharp_bi/val/val_sharp_bicubic/X4
+    dataroot_gt: /kaggle/input/datasets/qinamo/reds-val/val_sharp/val/val_sharp
+    dataroot_lq: /kaggle/input/datasets/qinamo/reds-val/val_sharp_bicubic/val/val_sharp_bicubic/X4
 
     cache_data: true
     io_backend:
